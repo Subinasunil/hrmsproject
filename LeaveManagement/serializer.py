@@ -2,7 +2,7 @@ from rest_framework import serializers
 from .models import (leave_type,leave_entitlement,emp_leave_balance,leave_accrual_transaction,employee_leave_request,
                      applicablity_critirea,leave_reset_transaction,Attendance,Shift,WeeklyShiftSchedule,EmployeeMachineMapping,LeaveReport,
                      LeaveApprovalLevels,LeaveApproval,LvApprovalNotify,LvEmailTemplate,LvCommonWorkflow,LvRejectionReason,LeaveApprovalReport,
-                    AttendanceReport,lvBalanceReport
+                    AttendanceReport,lvBalanceReport,CompensatoryLeaveRequest,CompensatoryLeaveBalance,CompensatoryLeaveTransaction
 
                      )
 
@@ -180,4 +180,27 @@ class AttendanceReportSerializer(serializers.ModelSerializer):
 class lvBalanceReportSerializer(serializers.ModelSerializer):
     class Meta:
         model = lvBalanceReport
+        fields = '__all__'
+class CompensatoryLeaveRequestSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CompensatoryLeaveRequest
+        fields ='__all__'
+    # def update(self, instance, validated_data):
+    #     previous_status = instance.status
+    #     instance = super().update(instance, validated_data)
+
+    #     # If the status changes to 'approved', handle the balance update
+    #     if previous_status != 'approved' and instance.status == 'approved':
+    #         instance.save()  # This will trigger the logic in the `save` method to update balance and transactions
+
+    #     return instance
+
+class CompensatoryLeaveBalanceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CompensatoryLeaveBalance
+        fields = '__all__'
+
+class CompensatoryLeaveTransactionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CompensatoryLeaveTransaction
         fields = '__all__'

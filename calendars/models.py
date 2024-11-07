@@ -1,6 +1,5 @@
 import logging
 from django.db import models
-
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -31,8 +30,15 @@ class weekend_calendar(models.Model):
     friday = models.CharField(choices=DAY_TYPE_CHOICES,default='fullday')
     saturday = models.CharField(choices=DAY_TYPE_CHOICES,default='fullday')
     sunday = models.CharField(choices=DAY_TYPE_CHOICES,default='fullday')
-    def str(self):
+    def __str__(self):
         return f"{self.calendar_code} - {self.year}"
+    # def is_weekend(self, date):
+    #     """Check if the given date is a weekend based on the calendar configuration."""
+    #     day_name = date.strftime('%A').lower()
+    #     print("dayyy",day_name)
+    #     day_type = getattr(self, day_name, 'fullday')
+    #     return day_type == 'leave'
+    
 
 class WeekendDetail(models.Model):
     WEEKDAY_CHOICES = [
@@ -104,6 +110,7 @@ class assign_weekend(models.Model):
     category = models.ManyToManyField('OrganisationManager.dept_master',  null=True, blank=True)
     employee= models.ManyToManyField('EmpManagement.emp_master',  null=True, blank=True)
     weekend_model = models.ForeignKey(weekend_calendar,on_delete=models.CASCADE)
+    
 @receiver(m2m_changed, sender=assign_weekend.branch.through)
 def update_branch_weekend_calendar(sender, instance, action, **kwargs):
     if action in ['post_add', 'post_remove', 'post_clear'] and instance.related_to == "branch":

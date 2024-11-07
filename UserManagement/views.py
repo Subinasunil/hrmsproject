@@ -84,10 +84,7 @@ class RegisterUserAPIView(viewsets.ModelViewSet):
         approvals = LvApprovalNotify.objects.filter(recipient_user=user).order_by('-created_at')
         serializer = LvApprovalNotifySerializer(approvals, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
-    
-    
-     
-
+ 
 class CompanyViewSet(viewsets.ModelViewSet):
     queryset = company.objects.all()
     serializer_class = CompanySerializer

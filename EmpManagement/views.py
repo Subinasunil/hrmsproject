@@ -1370,6 +1370,7 @@ class Doc_ReportViewset(viewsets.ModelViewSet):
             'report_id': report_id,
             'report_content': date_filtered_data,  # Pass filtered data to the frontend
             'unique_values': processed_unique_values,
+
         })
 
     def get_unique_values_for_fields(self, data, selected_fields):

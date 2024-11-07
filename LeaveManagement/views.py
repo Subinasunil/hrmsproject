@@ -10,10 +10,12 @@ from datetime import datetime, timedelta
 from django.db.models import Field
 from . serializer import(LeaveTypeSerializer,LeaveEntitlementSerializer,ApplicableSerializer,EmployeeLeaveBalanceSerializer,AccrualSerializer,ResetSerializer,LeaveRequestSerializer,
                          AttendanceSerializer,ShiftSerializer,WeeklyShiftScheduleSerializer,ImportAttendanceSerializer,EmployeeMappingSerializer,LeaveReportSerializer,LvApprovalLevelSerializer,
-                         LvApprovalSerializer,LvEmailTemplateSerializer,LvApprovalNotifySerializer,LvCommonWorkflowSerializer,LvRejectionReasonSerializer,LvApprovalReportSerializer,AttendanceReportSerializer,lvBalanceReportSerializer)
+                         LvApprovalSerializer,LvEmailTemplateSerializer,LvApprovalNotifySerializer,LvCommonWorkflowSerializer,LvRejectionReasonSerializer,LvApprovalReportSerializer,AttendanceReportSerializer,lvBalanceReportSerializer,
+                         CompensatoryLeaveRequestSerializer,CompensatoryLeaveTransactionSerializer,CompensatoryLeaveBalanceSerializer)
+
 from .models import (leave_type,leave_entitlement,applicablity_critirea,emp_leave_balance,leave_accrual_transaction,leave_reset_transaction,employee_leave_request,Attendance,Shift,
                      WeeklyShiftSchedule,EmployeeMachineMapping,LeaveReport,LeaveApprovalLevels,LeaveApproval,LvEmailTemplate,LvApprovalNotify,LvCommonWorkflow,LvRejectionReason,LeaveApprovalReport,
-                     AttendanceReport,lvBalanceReport
+                     AttendanceReport,lvBalanceReport,CompensatoryLeaveRequest,CompensatoryLeaveTransaction,CompensatoryLeaveBalance
                      )
 from rest_framework.parsers import MultiPartParser, FormParser
 from EmpManagement.models import emp_master
@@ -82,7 +84,7 @@ class Applicableviewset(viewsets.ModelViewSet):
 class leave_balance_viewset(viewsets.ModelViewSet):
     queryset = emp_leave_balance.objects.all()
     serializer_class = EmployeeLeaveBalanceSerializer
-
+    
 
 class Acrualviewset(viewsets.ModelViewSet):
     queryset = leave_accrual_transaction.objects.all()
@@ -673,6 +675,7 @@ class LvApprovalViewset(viewsets.ModelViewSet):
         ]
 
         return Response(response_data, status=status.HTTP_200_OK)
+
 class Lv_Approval_ReportViewset(viewsets.ModelViewSet):
     queryset = LeaveApprovalReport.objects.all()
     serializer_class = LvApprovalReportSerializer
@@ -1382,4 +1385,14 @@ class LvBalanceReportViewset(viewsets.ModelViewSet):
             report_data.append(general_data)
         return report_data
     
+class CompensatoryLeaveRequestviewset(viewsets.ModelViewSet):
+    queryset = CompensatoryLeaveRequest.objects.all()
+    serializer_class = CompensatoryLeaveRequestSerializer
 
+class CompensatoryLeaveBalancetviewset(viewsets.ModelViewSet):
+    queryset = CompensatoryLeaveBalance.objects.all()
+    serializer_class = CompensatoryLeaveBalanceSerializer
+
+class CompensatoryLeaveTransactionviewset(viewsets.ModelViewSet):
+    queryset = CompensatoryLeaveTransaction.objects.all()
+    serializer_class = CompensatoryLeaveTransactionSerializer

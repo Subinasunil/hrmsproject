@@ -18,7 +18,6 @@ from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 from django.core.mail import EmailMessage
 from .utils import send_dynamic_email
-from .custom_email_backend import BranchEmailBackend
 from email.utils import formataddr
 from django.conf import settings
 from django.contrib.postgres.fields import JSONField
@@ -99,7 +98,7 @@ class emp_master(models.Model):
     # emp_languages = models.ManyToManyField("Core.LanguageMaster",null=True,blank =True)
     emp_weekend_calendar = models.ForeignKey("calendars.weekend_calendar",on_delete = models.CASCADE,null=True,blank =True)
     holiday_calendar =models.ForeignKey("calendars.holiday_calendar",on_delete = models.CASCADE,null=True,blank =True)
-    users= models.ForeignKey('UserManagement.CustomUser', on_delete=models.CASCADE,null=True)
+    users= models.ForeignKey('UserManagement.CustomUser', on_delete=models.CASCADE, related_name='employees',null=True,blank =True)
     
 
     def save(self, *args, **kwargs):
@@ -156,22 +155,6 @@ class emp_master(models.Model):
         from LeaveManagement.models import Attendance
         # Fetch approvals assigned to this user
         return Attendance.objects.filter(employee=self)
-
- 
-
-
-
-# @receiver(post_save, sender=assign_weekend)
-# def update_emp_weekend_calendar(sender, instance, **kwargs):
-#     if instance.related_to == 'employee':
-#         emp_master.objects.all().update(emp_weekend_calendar=instance.weekend_model)
-#     elif instance.related_to == 'branch':
-#         emp_master.objects.filter(emp_branch_id=instance.target_id).update(emp_weekend_calendar=instance.weekend_model)
-#     elif instance.related_to == 'department':
-#         emp_master.objects.filter(emp_dept_id=instance.target_id).update(emp_weekend_calendar=instance.weekend_model)
-#     elif instance.related_to == 'category':
-#         emp_master.objects.filter(emp_ctgry_id=instance.target_id).update(emp_weekend_calendar=instance.weekend_model)
-
 
 
 class Report(models.Model):

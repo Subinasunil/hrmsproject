@@ -1,8 +1,8 @@
-from django.db import models
+from django.db import models,transaction
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.contrib.auth import get_user_model
-from datetime import datetime, timedelta,timezone, time
+from datetime import datetime, timedelta, time
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.db.models.signals import pre_save
@@ -15,7 +15,8 @@ from EmpManagement.models import EmailConfiguration
 from django.core.mail import EmailMultiAlternatives,get_connection, send_mail
 from django.template import Context, Template
 from django.utils.html import strip_tags
-
+from calendars.models import assign_weekend,assign_holiday
+from django.db.models import F
 # Create your models here.
 
 class leave_type(models.Model):
@@ -333,7 +334,261 @@ class LvCommonWorkflow(models.Model):
         ]
     def __str__(self):
         return f"Level {self.level} - {self.role or self.approver}"
-      
+#compensatory leave
+class CompensatoryLeaveTransaction(models.Model):
+    """Logs the addition and deduction of compensatory leave days."""
+    TRANSACTION_TYPE_CHOICES = [
+        ('addition', 'Addition'),
+        ('deduction', 'Deduction'),
+    ]
+    
+    employee = models.ForeignKey('EmpManagement.emp_master', on_delete=models.CASCADE)
+    transaction_date = models.DateField(auto_now_add=True)
+    transaction_type = models.CharField(max_length=10, choices=TRANSACTION_TYPE_CHOICES)
+    days = models.FloatField()
+    reason = models.TextField()
+
+    def __str__(self):
+        return f"{self.employee} - {self.transaction_type} of {self.days} days on {self.transaction_date}"
+     
+class CompensatoryLeaveBalance(models.Model):
+    """Tracks the total compensatory leave balance for each employee."""
+    employee = models.OneToOneField('EmpManagement.emp_master', on_delete=models.CASCADE)
+    balance = models.FloatField(default=0)
+
+    def __str__(self):
+        return f"{self.employee} - Compensatory Balance: {self.balance} days"
+
+class CompensatoryLeaveRequest(models.Model):
+    LEAVE_STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+    ]
+    REQUEST_TYPE_CHOICES = [
+        ('work_request', 'Work Request'),
+        ('leave_request', 'Compensatory Leave Request'),
+    ]
+    request_type = models.CharField(max_length=15, choices=REQUEST_TYPE_CHOICES, default='work_request')
+    employee = models.ForeignKey('EmpManagement.emp_master', on_delete=models.CASCADE)
+    request_date = models.DateField(auto_now_add=True)
+    work_date = models.DateField()  # Date employee worked on weekend/holiday
+    reason = models.TextField()
+    status = models.CharField(max_length=10, choices=LEAVE_STATUS_CHOICES, default='pending')
+    created_by=models.ForeignKey('UserManagement.CustomUser',on_delete=models.CASCADE,null=True,blank=True)
+    def __str__(self):
+        return f"Compensatory Request for {self.employee} on {self.work_date} - {self.status}"
+    def save(self, *args, **kwargs):
+        # Fetch the existing status before saving
+        old_status = None
+        if self.pk:
+            old_status = CompensatoryLeaveRequest.objects.get(pk=self.pk).status
+
+        # Call the original save method
+        super().save(*args, **kwargs)
+
+        # Proceed only if the request is approved and status has changed to approved
+        if self.status == 'Approved' and old_status != 'Approved':
+            # Wrap balance updates and transaction creation in an atomic transaction
+            with transaction.atomic():
+                # Fetch or create a compensatory leave balance record for the employee
+                leave_balance, created = CompensatoryLeaveBalance.objects.get_or_create(employee=self.employee)
+
+                if self.request_type == 'work_request':
+                    # Add 1 day to balance for approved work requests
+                    leave_balance.balance += 1
+                    # Log the addition transaction
+                    CompensatoryLeaveTransaction.objects.create(
+                        employee=self.employee,
+                        transaction_type='addition',
+                        days=1,
+                        reason=f"Approved work request on {self.work_date}"
+                    )
+                elif self.request_type == 'leave_request':
+                    # Deduct 1 day from balance for approved leave requests
+                    if leave_balance.balance >= 1:
+                        leave_balance.balance -= 1
+                        # Log the deduction transaction
+                        CompensatoryLeaveTransaction.objects.create(
+                            employee=self.employee,
+                            transaction_type='deduction',
+                            days=1,
+                            reason=f"Approved compensatory leave on {self.work_date}"
+                        )
+                    else:
+                        raise ValueError("Insufficient compensatory leave balance for this request.")
+
+                # Save the updated leave balance
+                leave_balance.save()
+
+
+    def move_to_next_level(self):
+        if self.approvals.filter(status=LeaveApproval.REJECTED).exists():
+            self.status = 'Rejected'
+            self.save()
+
+            # Notify creator about rejection
+            notification = LvApprovalNotify.objects.create(
+                recipient_user=self.created_by,
+                message=f"Your compensatory leave request for {self.work_date} has been rejected."
+            )
+            notification.send_email_notification('request_rejected', {
+                'request_type': 'Compensatory Leave',
+                'rejection_reason': 'Reason for rejection...',
+                'work_date': self.work_date,
+                'employee_name': self.employee.emp_first_name,
+                'emp_gender': self.employee.emp_gender,
+                'emp_date_of_birth': self.employee.emp_date_of_birth,
+                'emp_personal_email': self.employee.emp_personal_email,
+                'emp_company_email': self.employee.emp_company_email,
+                'emp_branch_name': self.employee.emp_branch_id,
+                'emp_department_name': self.employee.emp_dept_id,
+                'emp_designation_name': self.employee.emp_desgntn_id,
+            })
+            return
+
+        # Check current approval level and set up the next level
+        current_approved_levels = self.approvals.filter(status=LeaveApproval.APPROVED).count()
+        next_level = LeaveApprovalLevels.objects.filter(is_compensatory=True, level=current_approved_levels + 1).first()
+
+        if next_level:
+            last_approval = self.approvals.order_by('-level').first()
+            LeaveApproval.objects.create(
+                compensatory_request=self,
+                approver=next_level.approver,
+                role=next_level.role,
+                level=next_level.level,
+                status=LeaveApproval.PENDING,
+                note=last_approval.note if last_approval else None
+            )
+
+            # Notify next approver
+            notification = LvApprovalNotify.objects.create(
+                recipient_user=next_level.approver,
+                message=f"New compensatory leave request for approval: work date {self.work_date}, employee: {self.employee}"
+            )
+            notification.send_email_notification('request_created', {
+                'request_type': 'Compensatory Leave',
+                'employee_name': self.employee.emp_first_name,
+                'reason': self.reason,
+                'note': last_approval.note if last_approval else None,
+                'emp_gender': self.employee.emp_gender,
+                'emp_date_of_birth': self.employee.emp_date_of_birth,
+                'emp_personal_email': self.employee.emp_personal_email,
+                'emp_company_email': self.employee.emp_company_email,
+                'emp_branch_name': self.employee.emp_branch_id,
+                'emp_department_name': self.employee.emp_dept_id,
+                'emp_designation_name': self.employee.emp_desgntn_id,
+            })
+        else:
+            # Final approval reached, mark as approved and notify creator
+            self.status = 'Approved'
+            self.save()
+
+            notification = LvApprovalNotify.objects.create(
+                recipient_user=self.created_by,
+                message=f"Your compensatory leave request for {self.work_date} has been approved."
+            )
+            notification.send_email_notification('request_approved', {
+                'request_type': 'Compensatory Leave',
+                'emp_gender': self.employee.emp_gender,
+                'emp_date_of_birth': self.employee.emp_date_of_birth,
+                'emp_personal_email': self.employee.emp_personal_email,
+                'emp_company_email': self.employee.emp_company_email,
+                'emp_branch_name': self.employee.emp_branch_id,
+                'emp_department_name': self.employee.emp_dept_id,
+                'emp_designation_name': self.employee.emp_desgntn_id,
+            })
+            if self.employee:
+                notification = LvApprovalNotify.objects.create(
+                    recipient_employee=self.employee,
+                    message=f"Your compensatory leave request for {self.work_date} has been approved."
+                )
+                notification.send_email_notification('request_approved', {
+                    'request_type': 'Compensatory Leave',
+                    'emp_gender': self.employee.emp_gender,
+                    'emp_date_of_birth': self.employee.emp_date_of_birth,
+                    'emp_personal_email': self.employee.emp_personal_email,
+                    'emp_company_email': self.employee.emp_company_email,
+                    'emp_branch_name': self.employee.emp_branch_id,
+                    'emp_department_name': self.employee.emp_dept_id,
+                    'emp_designation_name': self.employee.emp_desgntn_id,
+                })
+        # if self.approvals.filter(status=LeaveApproval.REJECTED).exists():
+        #     self.status = 'Rejected'
+        #     self.save()
+        #     return
+
+        # current_approved_levels = self.approvals.filter(status=LeaveApproval.APPROVED).count()
+
+        # next_level = LeaveApprovalLevels.objects.filter(is_compensatory=True, level=current_approved_levels + 1).first()
+        
+        # if next_level:
+        #     last_approval = self.approvals.order_by('-level').first()
+        #     LeaveApproval.objects.create(
+        #         compensatory_request=self,
+        #         approver=next_level.approver,
+        #         role=next_level.role,
+        #         level=next_level.level,
+        #         status=LeaveApproval.PENDING,
+        #         note=last_approval.note if last_approval else None
+        #     )
+        # else:
+        #     self.status = 'Approved'
+        #     self.save()
+    
+@receiver(post_save, sender=CompensatoryLeaveRequest)
+def create_initial_approval_for_compensatory_leave(sender, instance, created, **kwargs):
+    if created:
+        # Fetch the first level for compensatory leave
+        first_level = LeaveApprovalLevels.objects.filter(is_compensatory=True).order_by('level').first()
+
+        if first_level:
+            LeaveApproval.objects.create(
+                compensatory_request=instance,
+                approver=first_level.approver,
+                role=first_level.role,
+                level=first_level.level,
+                status=LeaveApproval.PENDING
+            )
+        # Notify first approver
+            notification = LvApprovalNotify.objects.create(
+                recipient_user=first_level.approver,
+                message=f"New request for approval: Compensatory Leave, employee: {instance.employee}"
+            )
+            notification.send_email_notification('request_created', {
+                'request_type': 'Compensatory Leave',
+                'employee_name': instance.employee.emp_first_name,
+                'reason': instance.reason,
+                'emp_gender':instance.employee.emp_gender,
+                'emp_date_of_birth':instance.employee.emp_date_of_birth,
+                'emp_personal_email':instance.employee.emp_personal_email,
+                'emp_company_email':instance.employee.emp_company_email,
+                'emp_branch_name':instance.employee.emp_branch_id,
+                'emp_department_name':instance.employee.emp_dept_id,
+                'emp_designation_name':instance.employee.emp_desgntn_id,
+            }) 
+    # def clean(self):
+    #     """Validate that work_date is a weekend or holiday."""
+    #     if not self.employee.emp_weekend_calendar.is_weekend(self.work_date) and \
+    #        not self.employee.holiday_calendar.is_holiday(self.work_date):
+    #         raise ValidationError("The selected work date is neither a weekend nor a holiday.")
+        
+    # def save(self, *args, **kwargs):
+    #     # If approved, add a compensatory day to balance
+    #     if self.status == 'approved' and not self.approved_on:
+    #         self.approved_on = datetime.now().date()
+    #         compensatory_balance, created = CompensatoryLeaveBalance.objects.get_or_create(employee=self.employee)
+    #         compensatory_balance.add_leave(1)  # Add 1 day for approved request
+    #     super().save(*args, **kwargs)
+    
+    # def __str__(self):
+    #     return f"Compensatory Request for {self.employee} on {self.work_date} - {self.status}"
+
+
+    
+
+
 class employee_leave_request(models.Model):
     LEAVE_STATUS_CHOICES = [
         ('pending', 'Pending'),
@@ -369,67 +624,77 @@ class employee_leave_request(models.Model):
             raise ValidationError("Half-day leave should be on the same day.")
 
     def save(self, *args, **kwargs):
-        if self.start_date and self.end_date:
-            # Get the employee's leave balance record
-            leave_balance = emp_leave_balance.objects.get(employee=self.employee, leave_type=self.leave_type)
-
-            # Calculate leave days considering weekends and holidays
-            if self.dis_half_day:
-                self.number_of_days = 0.5
-            else:
-                self.number_of_days = leave_balance.get_leave_days(self.start_date, self.end_date)
-
-        # Deduct leave only if the status is set to 'approved' and it's a new request (not an update)
-        if self.status == 'approved' and not self.pk:
-            leave_balance.deduct_leave(self.number_of_days)
-
-        super().save(*args, **kwargs)  # Call the parent class's save method
-
-    def __str__(self):
-        return f"{self.employee} - {self.leave_type} from {self.start_date} to {self.end_date}"
-
-    # def save(self, *args, **kwargs):
-    #     if self.start_date and self.end_date:
-    #         delta = (self.end_date - self.start_date).days + 1  # Add 1 to include both start and end date
-
-    #         # If it's a half-day leave, count it as 0.5 day
-    #         if self.dis_half_day:
-    #             self.number_of_days = 0.5
-    #         else:
-    #             self.number_of_days = delta
+        # Calculate leave days based on start and end date
+        self.number_of_days = self.calculate_leave_days()
         
-    #     if self.status == 'approved' and not self.pk:
-    #         # Calculate leave days based on whether it's a half-day or full-day leave
-    #         if self.dis_half_day:
-    #             leave_days = 0.5
-    #         else:
-    #             leave_balance = emp_leave_balance.objects.get(employee=self.employee, leave_type=self.leave_type)
-    #             leave_days = leave_balance.get_leave_days(self.start_date, self.end_date, include_weekends_holidays=self.leave_type.include_weekend_and_holiday)
+        # Check if the status changed to "approved"
+        previous_instance = type(self).objects.filter(pk=self.pk).first()
+        status_changed_to_approved = (
+            previous_instance is None or previous_instance.status != 'approved'
+        ) and self.status == 'approved'
 
-    #         # Deduct the calculated leave days from the employee's leave balance
-    #         leave_balance.deduct_leave(leave_days)
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            if status_changed_to_approved:
+                self.deduct_leave_balance()
 
-        # # Perform proration calculation if necessary
-        # if self.leave_type.leave_entitlement.prorate_accrual:
-        #     accrual_transaction = leave_accrual_transaction.objects.create(
-        #         employee=self.employee,
-        #         leave_type=self.leave_type,
-        #         accrual_date=datetime.now(),
-        #         amount=self.leave_type.leave_entitlement.calculate_prorated_leave()
-        #     )
-        #     accrual_transaction.save()
+    def calculate_leave_days(self):
+        leave_days = 0
+        current_date = self.start_date
 
-        # # Deduct the appropriate amount of leave based on half-day or full-day leave
-        # leave_balance = emp_leave_balance.objects.get(employee=self.employee, leave_type=self.leave_type)
+        # Determine if weekends and holidays should be included
+        include_weekend_and_holiday = self.leave_type.include_weekend_and_holiday
+
+        # Fetch assigned weekend and holiday calendars for the employee
+        assigned_weekend = assign_weekend.objects.filter(employee=self.employee).first()
+        assigned_holiday = assign_holiday.objects.filter(employee=self.employee).first()
+
+        weekend_days = []
+        if assigned_weekend and not include_weekend_and_holiday:
+            calendar = assigned_weekend.weekend_model
+            weekend_days = [
+                day for day, value in {
+                    'monday': calendar.monday,
+                    'tuesday': calendar.tuesday,
+                    'wednesday': calendar.wednesday,
+                    'thursday': calendar.thursday,
+                    'friday': calendar.friday,
+                    'saturday': calendar.saturday,
+                    'sunday': calendar.sunday
+                }.items() if value == 'leave'
+            ]
+
+        holiday_dates = set()
+        if assigned_holiday and not include_weekend_and_holiday:
+            holiday_dates = set(assigned_holiday.holiday_model.holiday.all().values_list('date', flat=True))
+
+        # Iterate over the date range
+        while current_date <= self.end_date:
+            # Check if the day should be counted
+            if include_weekend_and_holiday or (
+                current_date.strftime('%A').lower() not in weekend_days and current_date not in holiday_dates
+            ):
+                if self.dis_half_day and current_date == self.start_date == self.end_date:
+                    leave_days += 0.5
+                else:
+                    leave_days += 1
+            current_date += timedelta(days=1)
+
+        return leave_days
+    def deduct_leave_balance(self):
+        # Fetch or create the employee's leave balance for this leave type
+        leave_balance, created = emp_leave_balance.objects.get_or_create(
+            employee=self.employee,
+            leave_type=self.leave_type
+        )
         
-        # if self.dis_half_day and self.leave_type.allow_half_day:
-        # # Deduct half a day if allowed and the request is for half-day leave
-        #     self.employee.leave_balance.deduct_leave(is_half_day=True)
-        # else:
-        #     # Deduct full day leave
-        #     self.employee.leave_balance.deduct_leave()
+        # Deduct the number_of_days from balance, allow negative if leave_type.negative is True
+        if not self.leave_type.negative and leave_balance.balance < self.number_of_days:
+            raise ValueError("Insufficient leave balance for this leave type.")
 
-        # super().save(*args, **kwargs)
+        leave_balance.balance -= self.number_of_days
+        leave_balance.save()
+    
 
     def __str__(self):
         return f"{self.employee} - {self.leave_type} from {self.start_date} to {self.end_date}"
@@ -560,6 +825,7 @@ class LeaveApprovalLevels(models.Model):
     role = models.CharField(max_length=50, null=True, blank=True)  # Use this for role-based approval like 'CEO' or 'Manager'
     approver = models.ForeignKey('UserManagement.CustomUser', null=True, blank=True, on_delete=models.SET_NULL)  # Use this for user-based approval
     request_type = models.ForeignKey('leave_type', related_name='leave_approval_levels', on_delete=models.CASCADE, null=True, blank=True)  # Nullable for common workflow
+    is_compensatory = models.BooleanField(default=False)
     class Meta:
         unique_together = ('level', 'request_type')
 
@@ -573,7 +839,8 @@ class LeaveApproval(models.Model):
         (APPROVED, 'Approved'),
         (REJECTED, 'Rejected'),
     ]
-    leave_request = models.ForeignKey(employee_leave_request, related_name='approvals', on_delete=models.CASCADE)
+    leave_request = models.ForeignKey(employee_leave_request, related_name='approvals', on_delete=models.CASCADE,null=True, blank=True)
+    compensatory_request = models.ForeignKey(CompensatoryLeaveRequest, related_name='approvals', on_delete=models.CASCADE, null=True, blank=True)
     approver = models.ForeignKey('UserManagement.CustomUser', on_delete=models.CASCADE)
     role = models.CharField(max_length=50, null=True, blank=True)
     level = models.IntegerField(default=1)
@@ -582,21 +849,16 @@ class LeaveApproval(models.Model):
     rejection_reason = models.ForeignKey(LvRejectionReason,null=True, blank=True, on_delete=models.SET_NULL)
     created_at = models.DateField(auto_now_add=True)
     updated_at = models.DateField(auto_now=True)
-
-    def approve(self,note=None):
+    def approve(self, note=None):
         self.status = self.APPROVED
         if note:
             self.note = note
         self.save()
-        self.leave_request.move_to_next_level()
-   
-    # def reject(self,note=None):
-    #     self.status = self.REJECTED
-    #     if note:
-    #         self.note = note
-    #     self.save()
-    #     self.leave_request.status = 'Rejected'
-    #     self.leave_request.save()
+        if self.leave_request:
+            self.leave_request.move_to_next_level()
+        elif self.compensatory_request:
+            self.compensatory_request.move_to_next_level()
+
     def reject(self, rejection_reason, note=None):
         if rejection_reason:
             self.rejection_reason = rejection_reason
@@ -604,45 +866,91 @@ class LeaveApproval(models.Model):
         if note:
             self.note = note
         self.save()
-        self.leave_request.status = 'Rejected'
-        self.leave_request.save()
+        if self.leave_request:
+            self.leave_request.status = 'Rejected'
+            self.leave_request.save()
+        elif self.compensatory_request:
+            self.compensatory_request.status = 'Rejected'
+            self.compensatory_request.save()
 
-        notification = LvApprovalNotify.objects.create(
-            recipient_user=self.leave_request.created_by,
-            message=f"Your request {self.leave_request} has been rejected."
-        )
-        notification.send_email_notification('request_rejected', {
-            'request_type': self.leave_request,
-            'rejection_reason': self.rejection_reason.reason_text if self.rejection_reason else "No reason provided",  # Add actual reason if available
-            'emp_gender': self.leave_request.employee.emp_gender,
-            'emp_date_of_birth': self.leave_request.employee.emp_date_of_birth,
-            'emp_personal_email': self.leave_request.employee.emp_personal_email,
-            'emp_company_email': self.leave_request.employee.emp_company_email,
-            'emp_branch_name': self.leave_request.employee.emp_branch_id,
-            'emp_department_name': self.leave_request.employee.emp_dept_id,
-            'emp_designation_name': self.leave_request.employee.emp_desgntn_id,
-            'emp_hired_date':self.leave_request.employee.emp_hired_date,
+        if self.leave_request:
+            self.leave_request.status = 'Rejected'
+            self.leave_request.save()
 
-        })
-
-        if self.leave_request.employee:
             notification = LvApprovalNotify.objects.create(
-                recipient_employee=self.leave_request.employee,
-                message=f"Request {self.leave_request} has been rejected."
+                recipient_user=self.leave_request.created_by,
+                message=f"Your leave request has been rejected."
             )
             notification.send_email_notification('request_rejected', {
-            'request_type': self.leave_request,
-            'rejection_reason': self.rejection_reason.reason_text if self.rejection_reason else "No reason provided",  # Add actual reason if available
-            'emp_gender': self.leave_request.employee.emp_gender,
-            'emp_date_of_birth': self.leave_request.employee.emp_date_of_birth,
-            'emp_personal_email': self.leave_request.employee.emp_personal_email,
-            'emp_company_email': self.leave_request.employee.emp_company_email,
-            'emp_branch_name': self.leave_request.employee.emp_branch_id,
-            'emp_department_name': self.leave_request.employee.emp_dept_id,
-            'emp_designation_name': self.leave_request.employee.emp_desgntn_id,
-            'emp_hired_date':self.leave_request.employee.emp_hired_date,
+                'request_type': self.leave_request.leave_type,
+                'rejection_reason': self.rejection_reason.reason_text if self.rejection_reason else "No reason provided",
+                'emp_gender': self.leave_request.employee.emp_gender,
+                'emp_date_of_birth': self.leave_request.employee.emp_date_of_birth,
+                'emp_personal_email': self.leave_request.employee.emp_personal_email,
+                'emp_company_email': self.leave_request.employee.emp_company_email,
+                'emp_branch_name': self.leave_request.employee.emp_branch_id,
+                'emp_department_name': self.leave_request.employee.emp_dept_id,
+                'emp_designation_name': self.leave_request.employee.emp_desgntn_id,
+                'emp_hired_date': self.leave_request.employee.emp_hired_date,
+            })
 
-        })
+            if self.leave_request.employee:
+                notification = LvApprovalNotify.objects.create(
+                    recipient_employee=self.leave_request.employee,
+                    message=f"Your leave request has been rejected."
+                )
+                notification.send_email_notification('request_rejected', {
+                    'request_type': self.leave_request.leave_type,
+                    'rejection_reason': self.rejection_reason.reason_text if self.rejection_reason else "No reason provided",
+                    'emp_gender': self.leave_request.employee.emp_gender,
+                    'emp_date_of_birth': self.leave_request.employee.emp_date_of_birth,
+                    'emp_personal_email': self.leave_request.employee.emp_personal_email,
+                    'emp_company_email': self.leave_request.employee.emp_company_email,
+                    'emp_branch_name': self.leave_request.employee.emp_branch_id,
+                    'emp_department_name': self.leave_request.employee.emp_dept_id,
+                    'emp_designation_name': self.leave_request.employee.emp_desgntn_id,
+                    'emp_hired_date': self.leave_request.employee.emp_hired_date,
+                })
+
+        # Handle notifications for compensatory requests
+        elif self.compensatory_request:
+            self.compensatory_request.status = 'Rejected'
+            self.compensatory_request.save()
+
+            notification = LvApprovalNotify.objects.create(
+                recipient_user=self.compensatory_request.created_by,
+                message=f"Your compensatory leave request has been rejected."
+            )
+            notification.send_email_notification('request_rejected', {
+                'request_type': 'Compensatory Leave',
+                'rejection_reason': self.rejection_reason.reason_text if self.rejection_reason else "No reason provided",
+                'emp_gender': self.compensatory_request.employee.emp_gender,
+                'emp_date_of_birth': self.compensatory_request.employee.emp_date_of_birth,
+                'emp_personal_email': self.compensatory_request.employee.emp_personal_email,
+                'emp_company_email': self.compensatory_request.employee.emp_company_email,
+                'emp_branch_name': self.compensatory_request.employee.emp_branch_id,
+                'emp_department_name': self.compensatory_request.employee.emp_dept_id,
+                'emp_designation_name': self.compensatory_request.employee.emp_desgntn_id,
+                'emp_hired_date': self.compensatory_request.employee.emp_hired_date,
+            })
+
+            if self.compensatory_request.employee:
+                notification = LvApprovalNotify.objects.create(
+                    recipient_employee=self.compensatory_request.employee,
+                    message=f"Your compensatory leave request has been rejected."
+                )
+                notification.send_email_notification('request_rejected', {
+                    'request_type': 'Compensatory Leave',
+                    'rejection_reason': self.rejection_reason.reason_text if self.rejection_reason else "No reason provided",
+                    'emp_gender': self.compensatory_request.employee.emp_gender,
+                    'emp_date_of_birth': self.compensatory_request.employee.emp_date_of_birth,
+                    'emp_personal_email': self.compensatory_request.employee.emp_personal_email,
+                    'emp_company_email': self.compensatory_request.employee.emp_company_email,
+                    'emp_branch_name': self.compensatory_request.employee.emp_branch_id,
+                    'emp_department_name': self.compensatory_request.employee.emp_dept_id,
+                    'emp_designation_name': self.compensatory_request.employee.emp_desgntn_id,
+                    'emp_hired_date': self.compensatory_request.employee.emp_hired_date,
+                })
 
 @receiver(post_save, sender=employee_leave_request)
 def create_initial_approval(sender, instance, created, **kwargs):
@@ -806,6 +1114,7 @@ class lvBalanceReport(models.Model):
        
     def __str__(self):
         return self.file_name
+
 
     
     
