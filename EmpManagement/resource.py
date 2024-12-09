@@ -62,7 +62,7 @@ class EmployeeResource(resources.ModelResource):
     emp_permenent_address = fields.Field(attribute='emp_permenent_address', column_name='Employee Permanent Address')
     emp_present_address = fields.Field(attribute='emp_present_address', column_name='Employee Current Address')
     emp_status = fields.Field(attribute='emp_status', column_name='Employee Status(True/False)')
-    emp_hired_date = fields.Field(attribute='emp_hired_date', column_name='Employee Joining Date(DD/MM/YYYY)')
+    emp_joined_date = fields.Field(attribute='emp_joined_date', column_name='Employee Joining Date(DD/MM/YYYY)')
     emp_active_date = fields.Field(attribute='emp_active_date', column_name='Employee Confirmaton Date(DD/MM/YYYY)')
     emp_relegion = fields.Field(attribute='emp_relegion', column_name='Employee Religion')
     emp_blood_group = fields.Field(attribute='emp_blood_group', column_name='Employee Blood Group')
@@ -97,7 +97,7 @@ class EmployeeResource(resources.ModelResource):
             'emp_permenent_address',
             'emp_present_address',
             'emp_status',
-            'emp_hired_date',
+            'emp_joined_date',
             'emp_active_date',
             'emp_relegion',
             'emp_blood_group',
@@ -189,45 +189,13 @@ class EmployeeResource(resources.ModelResource):
 
 class EmpCustomFieldValueResource(resources.ModelResource):
     emp_master = fields.Field(attribute='emp_master',column_name='Employee Code',widget=ForeignKeyWidget(emp_master, 'emp_code'))
-    emp_custom_field = fields.Field(column_name='Field Name',attribute='emp_custom_field',widget=ForeignKeyWidget(Emp_CustomField, 'emp_custom_field'))
+    emp_custom_field = fields.Field(attribute='emp_custom_field',column_name='Field Name',widget=ForeignKeyWidget(Emp_CustomField, 'emp_custom_field'))
     field_value = fields.Field(attribute='field_value',column_name='Field Value',widget=MultiTypeWidget())
 
     class Meta:
         model = Emp_CustomFieldValue
         fields = ('emp_master', 'emp_custom_field', 'field_value')
         import_id_fields = ()
-
-    # def before_import_row(self, row, row_idx=None, **kwargs):
-    #     emp_code = row.get('Employee Code')
-    #     field_name = row.get('Field Name')
-    #     field_value = row.get('Field Value')
-
-    #     print(f"Row {row_idx}: field_value='{field_value}'")  # Debug print statement
-
-    #     if not emp_master.objects.filter(emp_code=emp_code).exists():
-    #         raise ValidationError(f"emp_master with emp_code {emp_code} does not exist.")
-
-    #     if not Emp_CustomField.objects.filter(emp_custom_field=field_name).exists():
-    #         raise ValidationError(f"Emp_CustomField with field_name {field_name} does not exist.")
-
-    #     custom_field = Emp_CustomField.objects.get(emp_custom_field=field_name)
-        
-    #     if custom_field.data_type == 'date':
-    #         if isinstance(field_value, str):
-    #             field_value = field_value.strip()  # Remove leading and trailing spaces
-                
-    #             try:
-    #                 # Handle both datetime and date formats
-    #                 if ' ' in field_value:  # Check if it's a datetime string
-    #                     # Extract the date part (YYYY-MM-DD) and reformat it
-    #                     field_value = field_value.split(' ')[0]
-    #                     date_object = datetime.strptime(field_value, '%Y-%m-%d').date()
-    #                     field_value = date_object.strftime('%d-%m-%Y')  # Reformat to DD-MM-YYYY
-                        
-    #                 # Validate date format
-    #                 datetime.strptime(field_value, '%d-%m-%Y')
-    #             except ValueError:
-    #                 raise ValidationError(f"Invalid date format for field {field_name}. Date should be in DD-MM-YYYY format.")
 
     def before_import_row(self, row, row_idx=None, **kwargs):
         emp_code = row.get('Employee Code')

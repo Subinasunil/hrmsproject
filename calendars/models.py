@@ -20,16 +20,16 @@ class weekend_calendar(models.Model):
         ('fullday', 'fullday'),
         ('halfday', 'Halfday'),
     ]
-    description = models.TextField()
+    description   = models.TextField()
     calendar_code = models.CharField(max_length=100)
-    year = models.PositiveIntegerField()
-    monday = models.CharField(choices=DAY_TYPE_CHOICES,default='fullday')
-    tuesday=models.CharField(choices=DAY_TYPE_CHOICES,default='fullday')
-    wednesday=models.CharField(choices=DAY_TYPE_CHOICES,default='fullday')
-    thursday = models.CharField(choices=DAY_TYPE_CHOICES,default='fullday')
-    friday = models.CharField(choices=DAY_TYPE_CHOICES,default='fullday')
-    saturday = models.CharField(choices=DAY_TYPE_CHOICES,default='fullday')
-    sunday = models.CharField(choices=DAY_TYPE_CHOICES,default='fullday')
+    year          = models.PositiveIntegerField()
+    monday        = models.CharField(choices=DAY_TYPE_CHOICES,default='fullday')
+    tuesday       = models.CharField(choices=DAY_TYPE_CHOICES,default='fullday')
+    wednesday     = models.CharField(choices=DAY_TYPE_CHOICES,default='fullday')
+    thursday      = models.CharField(choices=DAY_TYPE_CHOICES,default='fullday')
+    friday        = models.CharField(choices=DAY_TYPE_CHOICES,default='fullday')
+    saturday      = models.CharField(choices=DAY_TYPE_CHOICES,default='fullday')
+    sunday        = models.CharField(choices=DAY_TYPE_CHOICES,default='fullday')
     def __str__(self):
         return f"{self.calendar_code} - {self.year}"
     # def is_weekend(self, date):
@@ -56,11 +56,11 @@ class WeekendDetail(models.Model):
         ('halfday', 'Halfday'),
     ]
     weekend_calendar = models.ForeignKey(weekend_calendar, related_name='details', on_delete=models.CASCADE)
-    weekday = models.CharField(max_length=9, choices=WEEKDAY_CHOICES)
-    day_type = models.CharField(max_length=7, choices=DAY_TYPE_CHOICES)
-    week_of_month = models.PositiveIntegerField(null=True, blank=True)  # 1 to 5 for specifying specific weeks
-    month_of_year = models.PositiveIntegerField(null=True, blank=True)
-    date = models.DateField(null=True, blank=True)  # Specific date for the day
+    weekday          = models.CharField(max_length=9, choices=WEEKDAY_CHOICES)
+    day_type         = models.CharField(max_length=7, choices=DAY_TYPE_CHOICES)
+    week_of_month    = models.PositiveIntegerField(null=True, blank=True)  # 1 to 5 for specifying specific weeks
+    month_of_year    = models.PositiveIntegerField(null=True, blank=True)
+    date             = models.DateField(null=True, blank=True)  # Specific date for the day
     class Meta:
         ordering = [ 'pk']
 @receiver(post_save, sender=weekend_calendar)
@@ -104,12 +104,12 @@ class assign_weekend(models.Model):
         ("category", "Category"),
         ("employee", "Employee"),
     ]
-    related_to = models.CharField(max_length=20, choices=EMP_CHOICES,null=True)
-    branch = models.ManyToManyField('OrganisationManager.brnch_mstr',  null=True, blank=True)
-    department = models.ManyToManyField('OrganisationManager.ctgry_master', null=True, blank=True)
-    category = models.ManyToManyField('OrganisationManager.dept_master',  null=True, blank=True)
-    employee= models.ManyToManyField('EmpManagement.emp_master',  null=True, blank=True)
-    weekend_model = models.ForeignKey(weekend_calendar,on_delete=models.CASCADE)
+    related_to     = models.CharField(max_length=20, choices=EMP_CHOICES,null=True)
+    branch         = models.ManyToManyField('OrganisationManager.brnch_mstr',  null=True, blank=True)
+    department     = models.ManyToManyField('OrganisationManager.ctgry_master', null=True, blank=True)
+    category       = models.ManyToManyField('OrganisationManager.dept_master',  null=True, blank=True)
+    employee       = models.ManyToManyField('EmpManagement.emp_master',  null=True, blank=True)
+    weekend_model  = models.ForeignKey(weekend_calendar,on_delete=models.CASCADE)
     
 @receiver(m2m_changed, sender=assign_weekend.branch.through)
 def update_branch_weekend_calendar(sender, instance, action, **kwargs):
@@ -148,16 +148,16 @@ def update_employee_weekend_calendar(sender, instance, action, **kwargs):
             employee.save()
             logger.debug(f"Updated employee ID {employee.id}")
 class holiday(models.Model):
-    description =models.CharField(max_length=50,unique=True)
-    start_date=models.DateField()
-    end_date=models.DateField()
-    restricted=models.BooleanField(default=False)
+    description  = models.CharField(max_length=50,unique=True)
+    start_date   = models.DateField()
+    end_date     = models.DateField()
+    restricted   = models.BooleanField(default=False)
 
 
 class holiday_calendar(models.Model):
-    calendar_title=models.CharField(max_length=50)
-    year = models.IntegerField()
-    holiday=models.ManyToManyField(holiday)
+    calendar_title = models.CharField(max_length=50)
+    year           = models.IntegerField()
+    holiday        = models.ManyToManyField(holiday)
     
 
 
@@ -168,11 +168,11 @@ class assign_holiday(models.Model):
         ("category", "Category"),
         ("employee", "Employee"),
     ]
-    related_to = models.CharField(max_length=20, choices=EMP_CHOICES,null=True)
-    branch = models.ManyToManyField('OrganisationManager.brnch_mstr',  null=True, blank=True)
-    department = models.ManyToManyField('OrganisationManager.ctgry_master', null=True, blank=True)
-    category = models.ManyToManyField('OrganisationManager.dept_master',  null=True, blank=True)
-    employee= models.ManyToManyField('EmpManagement.emp_master',  null=True, blank=True)
+    related_to    = models.CharField(max_length=20, choices=EMP_CHOICES,null=True)
+    branch        = models.ManyToManyField('OrganisationManager.brnch_mstr',  null=True, blank=True)
+    department    = models.ManyToManyField('OrganisationManager.ctgry_master', null=True, blank=True)
+    category      = models.ManyToManyField('OrganisationManager.dept_master',  null=True, blank=True)
+    employee      = models.ManyToManyField('EmpManagement.emp_master',  null=True, blank=True)
     holiday_model = models.ForeignKey(holiday_calendar,on_delete=models.CASCADE)
 @receiver(m2m_changed, sender=assign_holiday.branch.through)
 def update_branch_holiday_calendar(sender, instance, action, **kwargs):

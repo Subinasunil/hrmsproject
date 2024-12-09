@@ -30,6 +30,18 @@ SECRET_KEY = 'django-insecure-bu8sj-dd80ca20luk_(bo_tho55@wtmlpy^9k9gun$!f8&z4)&
 DEBUG = True
 
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS =[
+    'accept',
+    # 'accept-encoding',
+    'authorization',
+    'content-type',
+    # 'dnt',
+    # 'origin',
+    # 'user-agent',
+    # 'x-csrftoken',
+    # 'x-requested-with'
+]
+ALLOWED_HOSTS = [ 'zeoproducts.com','.zeoproducts.com','*','.zeo.com']
 ALLOWED_HOSTS = [ 'zeoproducts.com','.zeoproducts.com','*','.zeo.com']
 
 
@@ -54,6 +66,7 @@ SHARED_APPS = [
     'rest_framework.authtoken',
     'import_export',
     'django_celery_beat',
+    'oauth2_provider',
 ]
 
 TENANT_APPS = [
@@ -62,7 +75,8 @@ TENANT_APPS = [
     'EmpManagement',
     'calendars',
     'LeaveManagement',
-    'django.contrib.admin',
+    'django.contrib.sessions',
+    # 'django.contrib.admin',
 ]
 
 INSTALLED_APPS = list(set(SHARED_APPS + TENANT_APPS))
@@ -74,12 +88,16 @@ TENANT_DOMAIN_MODEL = "UserManagement.Domain"  # app.Model
 TENANT_USERS_DOMAIN = "localhost"
 PUBLIC_SCHEMA_NAME = 'public'
 
+
 # DEFAULT_FILE_STORAGE = 'tenant_schemas.storage.TenantFileSystemStorage'
 DATABASE_ROUTERS = (
     'django_tenants.routers.TenantSyncRouter',
 )
 PG_EXTRA_SEARCH_PATHS = ['extensions']
-SESSION_COOKIE_DOMAIN = '.zeo.com'
+# SESSION_COOKIE_DOMAIN = '.zeo.com'
+
+
+
 SESSION_COOKIE_SECURE = True
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media/')
@@ -101,9 +119,8 @@ CORS_ALLOW_METHODS = [
 ]
 
 MIDDLEWARE = [
-    # 'UserManagement.middleware.RequestIDTenantMiddleware',
-
     
+    'django_tenants.middleware.TenantMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -112,7 +129,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'django_tenants.middleware.TenantMiddleware',
+    'UserManagement.middleware.TenantTimezoneMiddleware',
     # 'django_tenant_users.middleware.TenantUserMiddleware',
     
     # 'UserManagement.middleware.MultiTenantAuthenticationMiddleware',
@@ -121,17 +138,18 @@ MIDDLEWARE = [
 
 
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
-CACHES = {
-    'default': {
-        'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': 'redis://127.0.0.1:6379/1',  # Change as needed
-        'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-        }
-    }
-}
+# CACHES = {
+#     'default': {
+#         'BACKEND': 'django_redis.cache.RedisCache',
+#         'LOCATION': 'redis://127.0.0.1:6379/1',  # Change as needed
+#         'OPTIONS': {
+#             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+#         }
+#     }
+# }
 
 ROOT_URLCONF = 'zeo.urls'
+PUBLIC_SCHEMA = 'zeo.urls_public'
 
 TEMPLATES = [
     {
@@ -203,6 +221,7 @@ USE_I18N = True
 
 USE_TZ = True
 
+SITE_URL = 'http://localhost:8000'  #for email template button clicks
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.0/howto/static-files/
@@ -244,35 +263,36 @@ SIMPLE_JWT = {
 }
 
 SHOW_PUBLIC_IF_NO_TENANT_FOUND = True
+
 #https://github.com/microsoftarchive/redis/releases
 # Celery settings
+#celery -A zeo beat --loglevel=info, celery -A zeo worker -l info -P eventlet or in linux celery -A zeo worker -l info -P gevent
 CELERY_BROKER_URL = 'redis://localhost:6379/0'  # Or your Redis server URL
 CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
 # Set this to ensure retries during startup
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
-
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 TIME_ZONE = 'UTC'  # or your specific timezone
-CELERY_TIMEZONE = 'Asia/Kolkata'  # or your specific timezone
+CELERY_TIMEZONE = 'UTC'  # or your specific timezone
 CELERY_ENABLE_UTC = True  # Ensure UTC is enabled if needed
 
 CELERY_BEAT_SCHEDULE = {
     'schedule-document-expiry-notifications-for-all-tenants': {
         'task': 'EmpManagement.tasks.send_document_expiry_notifications_for_all_tenants',
-        'schedule': crontab(hour=17, minute=44) 
+        'schedule': crontab(hour=12, minute=10) 
         # 'schedule': timedelta(days=1),
 
     },
     'leave-accruals':{
         'task':'LeaveManagement.tasks.accrue_leaves',
-        'schedule': crontab(hour=13, minute=30)
+        'schedule': crontab(hour=12, minute=37)
 
     },
     'reset-leave-balances':{
         'task':'LeaveManagement.tasks.reset_leave_balances',
-        'schedule': crontab(hour=13, minute=30)
+        'schedule': crontab(hour=12, minute=37)
 
     }
 }

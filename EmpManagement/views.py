@@ -2,6 +2,7 @@ from django.shortcuts import render
 from django.conf import settings
 from datetime import date
 import logging
+from django_tenants.utils import tenant_context
 from .models import (emp_family,Emp_Documents,EmpJobHistory,EmpLeaveRequest,EmpQualification,GeneralRequest,RequestType,
                      emp_master,notification,EmpFamily_CustomField,EmpJobHistory_CustomField,
                      EmpQualification_CustomField,EmpDocuments_CustomField,LanguageSkill,MarketingSkill,ProgrammingLanguageSkill,
@@ -50,12 +51,12 @@ from rest_framework.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect
 from django.contrib.contenttypes.models import ContentType
 from rest_framework import views, status
-from django.forms.models import model_to_dict
-from .tasks import send_document_expiry_notifications_for_all_tenants
+from UserManagement.models import CustomUser
 from django.core.cache import cache
 import redis
 import json
 from LeaveManagement .serializer import AttendanceSerializer
+from LeaveManagement .models import EmployeeShiftSchedule
 
 r = redis.StrictRedis(host='localhost', port=6379, db=0)
 
@@ -378,7 +379,41 @@ class EmpViewSet(viewsets.ModelViewSet):
         response['Content-Disposition'] = 'attachment; filename="Empployee_data.xlsx"'
         return response
 
+class EmployeeListViewSet(viewsets.ModelViewSet):
+    serializer_class = EmpSerializer
 
+    def list(self, request, *args, **kwargs):
+        tenant_id = request.query_params.get('tenant_id')
+        if not tenant_id:
+            return Response({'error': 'Tenant ID is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        with tenant_context(tenant_id):
+            employees = emp_master.objects.all()  # Filter based on tenant context
+            serializer = self.get_serializer(employees, many=True)
+            return Response(serializer.data)
+    
+class LinkUserToEmployee(APIView):
+    def post(self, request, *args, **kwargs):
+        user_id = request.data.get('user.id')
+        employee_id = request.data.get('employee_id')
+        
+        try:
+            user = CustomUser.objects.get(id=user_id)
+            employee = emp_master.objects.get(id=employee_id)
+        except CustomUser.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        except emp_master.DoesNotExist:
+            return Response({'error': 'Employee not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Ensure the employee is part of the user's tenants
+        if employee.emp_branch_id.id not in user.tenants.values_list('id', flat=True):
+            return Response({'error': 'Selected employee is not part of the user\'s tenants.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Link the user to the employee
+        employee.user = user
+        employee.save()
+
+        return Response({'success': 'User linked to employee successfully'}, status=status.HTTP_200_OK)    
 
 class ReportViewset(viewsets.ModelViewSet):
     queryset = Report.objects.all()
@@ -412,7 +447,7 @@ class ReportViewset(viewsets.ModelViewSet):
     #     self.ensure_standard_report_exists()
 
     def get_available_fields(self):
-        excluded_fields = {'id', 'is_ess','created_at', 'created_by', 'updated_at', 'updated_by', 'emp_profile_pic'}
+        excluded_fields = {'id', 'is_ess','created_at', 'created_by', 'updated_at', 'updated_by', 'emp_profile_pic','emp_weekend_calendar','holiday_calendar','users'}
         display_names = {
             "emp_code": "Employee Code",
             "emp_first_name": "First Name",
@@ -1002,7 +1037,7 @@ class EmpbulkuploadViewSet(viewsets.ModelViewSet):
                                 all_errors_field_values.append({"row": row_idx, "error": str(e)})
 
                     if all_errors_field_values:
-                        return Response({"errors_field_values": all_errors_field_values}, status=400)
+                        return Response({"errors_sheet2": all_errors_field_values}, status=400)
 
                     with transaction.atomic():
                         custom_field_value_result = custom_field_value_resource.import_data(dataset_sheet2, dry_run=False, raise_errors=True)
@@ -1489,62 +1524,6 @@ class Doc_ReportViewset(viewsets.ModelViewSet):
         response['Content-Disposition'] = f'attachment; filename=filtered_report_{report_id}.xlsx'
         return response
      
-# class Bulkupload_DocumentViewSet(viewsets.ModelViewSet):
-#     queryset = Emp_Documents.objects.all()
-#     serializer_class = DocBulkuploadSerializer
-#     # permission_classes = [IsAuthenticated]
-#     parser_classes = (MultiPartParser, FormParser)
-    
-#     @action(detail=False, methods=['post'], parser_classes=[MultiPartParser, FormParser])
-#     def bulk_upload(self, request):
-#         if request.method == 'POST' and request.FILES.get('file'):
-#             excel_file = request.FILES['file']
-#             if excel_file.name.endswith('.xlsx'):
-#                 try:
-#                     # Load data from the Excel file into a Dataset
-#                     dataset = Dataset()
-#                     dataset.load(excel_file.read(), format='xlsx')
-
-#                     # Create a resource instance
-#                     resource = DocumentResource()
-
-#                     # Analyze the entire dataset to collect errors
-#                     all_errors = []
-#                     valid_rows = []
-#                     with transaction.atomic():
-#                         for row_idx, row in enumerate(dataset.dict, start=2):  # Start from row 2 (1-based index)
-#                             row_errors = []
-#                             try:
-#                                 resource.before_import_row(row, row_idx=row_idx)
-#                             except ValidationError as e:
-#                                 row_errors.extend([f"Row {row_idx}: {error}" for error in e.messages])
-#                             if row_errors:
-#                                 all_errors.extend(row_errors)
-#                             else:
-#                                 valid_rows.append(row)
-
-#                         # After analyzing all rows, check for duplicate values
-#                         # duplicate_errors = resource.check_duplicate_values(dataset)
-
-#                         # # If there are any duplicate errors, add them to the list of all errors
-#                         # if duplicate_errors:
-#                         #     all_errors.extend(duplicate_errors)
-
-#                     # If there are any errors, return them
-#                     if all_errors:
-#                         return Response({"errors": all_errors}, status=400)
-
-#                     # If no errors, import valid data into the model
-#                     with transaction.atomic():
-#                         result = resource.import_data(dataset, dry_run=False, raise_errors=True)
-
-#                     return Response({"message": f"{result.total_rows} records created successfully"})
-#                 except Exception as e:
-#                     return Response({"error": str(e)}, status=400)
-#             else:
-#                 return Response({"error": "Invalid file format. Only Excel files (.xlsx) are supported."}, status=400)
-#         else:
-#             return Response({"error": "Please provide an Excel file."}, status=400)
 class Bulkupload_DocumentViewSet(viewsets.ModelViewSet):
     queryset = Emp_Documents.objects.all()
     serializer_class = DocBulkuploadSerializer
@@ -1879,7 +1858,30 @@ class ApprovalViewset(viewsets.ModelViewSet):
         note = request.data.get('note')  # Get the note from the request
         approval.reject(note=note)
         return Response({'status': 'rejected', 'note': note}, status=status.HTTP_200_OK)
+# from django.shortcuts import redirect
+# from rest_framework.response import Response
+# from rest_framework.decorators import api_view
+# from django.contrib.sites.shortcuts import get_current_site
 
+# @api_view(['GET'])
+# def approve_request(request, approval_id):
+#     try:
+#         approval = Approval.objects.get(id=approval_id, status=Approval.PENDING)
+#         approval.approve()
+#         # Redirect to a page confirming the action, for example:
+#         return redirect(f"{get_current_site(request).domain}/approval-success/")
+#     except Approval.DoesNotExist:
+#         return Response({'status': 'error', 'message': 'Approval request not found'}, status=404)
+
+# @api_view(['GET'])
+# def reject_request(request, approval_id):
+#     try:
+#         approval = Approval.objects.get(id=approval_id, status=Approval.PENDING)
+#         approval.reject()
+#         # Redirect to a page confirming the rejection, for example:
+#         return redirect(f"{get_current_site(request).domain}/rejection-success/")
+#     except Approval.DoesNotExist:
+#         return Response({'status': 'error', 'message': 'Approval request not found'}, status=404)
     
     
 class UserNotificationsViewSet(viewsets.ModelViewSet):

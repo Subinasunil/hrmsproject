@@ -1,4 +1,5 @@
 from django.urls import path, include
+from . import views
 from rest_framework.routers import DefaultRouter
 from .views import (EmpFamViewSet, EmpJobHistoryvSet, EmpViewSet,NotificationViewset,
                     Emp_QualificationViewSet, Emp_DocumentViewSet, EmpLeaveRequestViewSet,EmpbulkuploadViewSet,
@@ -77,7 +78,7 @@ urlpatterns = [
     # path('approvals/<int:pk>/reject/', reject_request, name='reject_request'),
     path('api/ess-users/', ESSUserListView.as_view(), name='ess-user-list'),
     path('api/update-ess-user/', UpdateESSUserView.as_view(), name='update-ess-user'),
-
+    
 
     
 

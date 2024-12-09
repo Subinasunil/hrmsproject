@@ -1,0 +1,2 @@
+*fixed email template
+*rejection reason adds in the general request

@@ -1,0 +1,181 @@
+
+class ReportViewset(viewsets.ModelViewSet):
+    queryset = Report.objects.all()
+    serializer_class = EmployeeReportSerializer
+    # permission_classes = [IsSuperUserOrInSameBranch]
+
+     
+    def get_queryset(self):
+        user = self.request.user
+        print ("user",user)
+        # If superuser, return all reports
+        if user.is_superuser:
+            return Report.objects.all()
+       
+       # Filter reports based on user's branch
+        if user.is_authenticated:
+            print("authenticated")
+            if hasattr(user, 'branches'):
+            
+                print("all")  
+                user_branch_id = user.branches
+                print("branch",user_branch_id)
+                return Report.objects.filter(branch_id=user_branch_id)
+            
+        # If user does not have branch_id (should not happen with proper user model setup), return empty queryset or handle as needed
+        return Report.objects.none()
+   
+
+    def __init__(self, *args, **kwargs):
+        super(ReportViewset, self).__init__(*args, **kwargs)
+        self.ensure_standard_report_exists()
+
+    def get_available_fields(self):
+        excluded_fields = {'id', 'is_ess','created_at', 'created_by', 'updated_at', 'updated_by', 'emp_profile_pic'}
+        display_names = {
+            "emp_code": "Employee Code",
+            "emp_first_name": "First Name",
+            "emp_last_name": "Last Name",
+            "emp_gender": "Gender",
+            "emp_date_of_birth": "Date of Birth",
+            "emp_personal_email": "Email",
+            "emp_mobile_number_1": "Mobile Number",
+            "emp_mobile_number_2": "Mobile Number2",
+            "emp_country_id": "Country",
+            "emp_state_id": "State",
+            "emp_city": "City",
+            "emp_permenent_address": "Permanent Address",
+            "emp_present_address": "Present Address",
+            "emp_status": "Status",
+            "emp_hired_date": "Hired Date",
+            "emp_active_date": "Active Date",
+            "emp_relegion": "Religion",
+            "emp_blood_group": "Blood Group",
+            "emp_nationality_id": "Nationality",
+            "emp_marital_status": "Marital Status",
+            "emp_father_name": "Father Name",
+            "emp_mother_name": "Mother Name",
+            "emp_posting_location": "Posting Location",
+            "is_active": "Active",
+            "epm_ot_applicable": "OT Applicable",
+            "emp_company_id": "Company",
+            "emp_branch_id": "Branch",
+            "emp_dept_id": "Department",
+            "emp_desgntn_id": "Designation",
+            "emp_ctgry_id": "Category"
+        }
+        
+        emp_master_fields = [field.name for field in emp_master._meta.get_fields() if isinstance(field, Field) and field.name not in excluded_fields]
+        emp_custom_fields = list(Emp_CustomField.objects.values_list('emp_custom_field', flat=True))        
+        available_fields = {field: display_names.get(field, field) for field in emp_master_fields + emp_custom_fields} 
+        return available_fields
+
+    @action(detail=False, methods=['get'])
+    def select_employee_fields(self, request, *args, **kwargs):
+        available_fields = self.get_available_fields()
+        return Response({'available_fields': available_fields})
+        
+
+    @csrf_exempt
+    @action(detail=False, methods=['post'])
+    def emp_select_report(self, request, *args, **kwargs):
+        # if not request.user.is_superuser:
+        #     return Response({"error": "You do not have permission to access this resource."}, status=status.HTTP_403_FORBIDDEN)
+        if request.method == 'POST':
+            try:
+                file_name = request.POST.get('file_name', 'reports')  # Default to 'report' if 'file_name' is not provided
+                fields_to_include = request.POST.getlist('fields', [])
+            except Exception as e:
+                return JsonResponse({'status': 'error', 'message': str(e)})
+
+            if not fields_to_include:
+                fields_to_include = list(self.get_available_fields().keys())
+
+            employees = emp_master.objects.all()
+
+            report_data = self.generate_report_data(fields_to_include, employees)
+            file_path = os.path.join(settings.MEDIA_ROOT, file_name + '.json')  # Use 'file_name' provided by the user
+
+            with open(file_path, 'w') as file:
+                json.dump(report_data, file, default=str)  # Serialize dates to string format
+
+            Report.objects.create(file_name=file_name, report_data=file_name + '.json')
+            return JsonResponse({
+                'status': 'success',
+                'file_path': file_path,
+                'selected_fields_data': fields_to_include,
+                
+            })
+
+        return JsonResponse({'status': 'error', 'message': 'Invalid request method'})
+    
+    def ensure_standard_report_exists(self):
+        # Update the standard report if it exists, otherwise create a new one
+        if Report.objects.filter(file_name='std_report').exists():
+            self.generate_standard_report()
+        else:
+            self.generate_standard_report()
+    
+    def generate_standard_report(self):
+        try:
+            file_name = 'std_report'
+            fields_to_include = self.get_available_fields().keys()
+            employees = emp_master.objects.all()
+
+            report_data = self.generate_report_data(fields_to_include, employees)
+            file_path = os.path.join(settings.MEDIA_ROOT, file_name + '.json')
+
+            # Save report data to a file
+            with open(file_path, 'w') as file:
+                json.dump(report_data, file, default=str)
+
+            # Update or create the standard report entry in the database
+            Report.objects.update_or_create(
+                file_name=file_name,
+                defaults={'report_data': file_name + '.json'}
+            )
+
+            print("Standard report generated successfully.")
+
+        except Exception as e:
+            print(f"Error generating standard report: {str(e)}")
+
+    @action(detail=False, methods=['get'])
+    def std_report(self, request, *args, **kwargs):
+        try:
+            # Ensure the standard report is up-to-date
+            self.generate_standard_report()
+            report = Report.objects.get(file_name='std_report')
+            serializer = self.get_serializer(report)
+            return Response(serializer.data)
+        except Report.DoesNotExist:
+            return Response({"error": "Standard report not found."}, status=status.HTTP_404_NOT_FOUND)
+
+
+
+
+def generate_report_data(self, fields_to_include, employees):
+        emp_master_fields = [field.name for field in emp_master._meta.get_fields() if isinstance(field, Field) and field.name != 'id']
+        custom_fields = list(Emp_CustomFieldValue.objects.filter(emp_master__in=employees).values_list('emp_custom_field', flat=True).distinct())
+
+        report_data = []
+        for employee in employees:
+            employee_data = {}
+            for field in fields_to_include:
+                if field in emp_master_fields:
+                    value = getattr(employee, field, 'N/A')
+                    if isinstance(value, date):
+                        value = value.isoformat()  # Convert date to ISO format string
+                elif field in custom_fields:
+                    # Fetch the custom field value directly from Emp_CustomFieldValue
+                    custom_field_value = Emp_CustomFieldValue.objects.filter(
+                        emp_master=employee, 
+                        emp_custom_field=field
+                    ).first()
+                    value = custom_field_value.field_value if custom_field_value else 'N/A'
+                else:
+                    value = 'N/A'
+                employee_data[field] = value
+            report_data.append(employee_data)
+
+        return report_data

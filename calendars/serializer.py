@@ -67,7 +67,7 @@ class HolidaySerializer(serializers.ModelSerializer):
 
 class HolidayCalandarSerializer(serializers.ModelSerializer):
     year = serializers.ChoiceField(choices=[(year, year) for year in range(2000, 2040)])
-    holiday = HolidaySerializer(many=True,)
+    # holiday = HolidaySerializer(many=True,)
     class Meta:
         model = holiday_calendar
         fields = '__all__'

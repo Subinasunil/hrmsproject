@@ -1,8 +1,10 @@
 from rest_framework import serializers
+from django.utils import timezone
 from .models import (leave_type,leave_entitlement,emp_leave_balance,leave_accrual_transaction,employee_leave_request,
-                     applicablity_critirea,leave_reset_transaction,Attendance,Shift,WeeklyShiftSchedule,EmployeeMachineMapping,LeaveReport,
+                     applicablity_critirea,leave_reset_transaction,Attendance,Shift,EmployeeMachineMapping,LeaveReport,
                      LeaveApprovalLevels,LeaveApproval,LvApprovalNotify,LvEmailTemplate,LvCommonWorkflow,LvRejectionReason,LeaveApprovalReport,
-                    AttendanceReport,lvBalanceReport,CompensatoryLeaveRequest,CompensatoryLeaveBalance,CompensatoryLeaveTransaction
+                    AttendanceReport,lvBalanceReport,CompensatoryLeaveRequest,CompensatoryLeaveBalance,CompensatoryLeaveTransaction,ShiftPattern,EmployeeShiftSchedule,
+                    ShiftOverride,WeekPatternAssignment,EmployeeRejoining
 
                      )
 
@@ -33,11 +35,6 @@ class LeaveEntitlementSerializer(serializers.ModelSerializer):
         model = leave_entitlement
         fields = '__all__'
 
-
-# class LeavePolicySerializer(serializers.ModelSerializer):
-#     class Meta:
-#         model = emp_leave_balance
-#         fields = '__all__'
 
 class LeaveRequestSerializer(serializers.ModelSerializer):
     
@@ -103,6 +100,49 @@ class AttendanceSerializer(serializers.ModelSerializer):
         if instance.employee:  
             rep['employee'] = instance.employee.emp_code
         return rep
+    def update(self, instance, validated_data):
+        # Detect if the date has been updated
+        new_date = validated_data.get('date', instance.date)
+        if new_date != instance.date:
+            # Recalculate the shift if the date is updated
+            schedule = EmployeeShiftSchedule.objects.filter(employee=instance.employee).first()
+            if schedule:
+                new_shift = schedule.get_shift_for_date(instance.employee, new_date)
+                validated_data['shift'] = new_shift
+        else:
+            # If the date is not updated, retain the current shift
+            validated_data['shift'] = instance.shift  # Keep the existing shift
+
+        # Update fields
+        instance.shift = validated_data.get('shift', instance.shift)
+        instance.date = new_date
+        instance.check_in_time = validated_data.get('check_in_time', instance.check_in_time)
+        instance.check_out_time = validated_data.get('check_out_time', instance.check_out_time)
+
+        # Calculate total hours if check-out time is updated
+        if instance.check_in_time and instance.check_out_time:
+            instance.calculate_total_hours()
+        instance.save()
+        return instance
+    # def update(self, instance, validated_data):
+    #     # Detect if the date has been updated
+    #     new_date = validated_data.get('date', instance.date)
+    #     if new_date != instance.date:
+    #         # Recalculate the shift if the date is updated
+    #         schedule = EmployeeShiftSchedule.objects.filter(employee=instance.employee).first()
+    #         if schedule:
+    #             new_shift = schedule.get_shift_for_date(instance.employee, new_date)
+    #             validated_data['shift'] = new_shift
+    #     # Update fields
+    #     instance.shift = validated_data.get('shift', instance.shift)
+    #     instance.date = new_date
+    #     instance.check_in_time = validated_data.get('check_in_time', instance.check_in_time)
+    #     instance.check_out_time = validated_data.get('check_out_time', instance.check_out_time)
+    #     # Calculate total hours if check-out time is updated
+    #     if instance.check_in_time and instance.check_out_time:
+    #         instance.calculate_total_hours()
+    #     instance.save()
+    #     return instance
     
 class ImportAttendanceSerializer(serializers.ModelSerializer):
     file = serializers.FileField(write_only=True)
@@ -114,10 +154,28 @@ class ShiftSerializer(serializers.ModelSerializer):
     class Meta:
         model = Shift
         fields = '__all__'
-class WeeklyShiftScheduleSerializer(serializers.ModelSerializer):
+class ShiftPatternSerializer(serializers.ModelSerializer):
     class Meta:
-        model = WeeklyShiftSchedule
+        model = ShiftPattern
         fields = '__all__'
+        
+class ShiftOverrideSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ShiftOverride
+        fields = '__all__'
+
+class EmployeeShiftScheduleSerializer(serializers.ModelSerializer):
+    # week_patterns = ShiftPatternSerializer(many=True, read_only=True)
+    start_date = serializers.DateField(default=timezone.now().date)
+    class Meta:
+        model = EmployeeShiftSchedule
+        fields = '__all__'
+    
+class WeekPatternAssignmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WeekPatternAssignment
+        fields = '__all__'
+
 class EmployeeMappingSerializer(serializers.ModelSerializer):
     class Meta:
         model = EmployeeMachineMapping
@@ -204,3 +262,8 @@ class CompensatoryLeaveTransactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = CompensatoryLeaveTransaction
         fields = '__all__'
+class EmployeeRejoiningSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EmployeeRejoining
+        fields = '__all__'
+

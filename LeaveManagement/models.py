@@ -17,6 +17,8 @@ from django.template import Context, Template
 from django.utils.html import strip_tags
 from calendars.models import assign_weekend,assign_holiday
 from django.db.models import F
+from django.utils import timezone
+import pytz
 # Create your models here.
 
 class leave_type(models.Model):
@@ -34,20 +36,19 @@ class leave_type(models.Model):
         ('leave_grant','leave_grant')
     ]
     
-    name = models.CharField(max_length=50,unique=True)
-    image = models.ImageField(upload_to='leave_images/')
-    code =  models.CharField(max_length=30,unique=True)
-    # no_of_days = models.IntegerField()
-    type = models.CharField(max_length=20,choices=type_choice)
-    unit = models.CharField(max_length=10,choices=unit_choice)
-    negative = models.BooleanField(default=False)
-    description = models.CharField(max_length=200)  
-    allow_half_day = models.BooleanField(default=False)  # Allows half-day leave if set to True
-    valid_from = models.DateField()
-    valid_to = models.DateField(null=True,blank=True)
-    include_weekend_and_holiday = models.BooleanField(default=False)
-    use_common_workflow = models.BooleanField(default=False)
-    # allow_opening_balance =models.BooleanField(default=False)
+    name                          = models.CharField(max_length=50,unique=True)
+    image                         = models.ImageField(upload_to='leave_images/')
+    code                          = models.CharField(max_length=30,unique=True)
+    type                          = models.CharField(max_length=20,choices=type_choice)
+    unit                          = models.CharField(max_length=10,choices=unit_choice)
+    negative                      = models.BooleanField(default=False)
+    description                   = models.CharField(max_length=200)  
+    allow_half_day                = models.BooleanField(default=False)  # Allows half-day leave if set to True
+    valid_from                    = models.DateField()
+    valid_to                      = models.DateField(null=True,blank=True)
+    include_weekend_and_holiday   = models.BooleanField(default=False)
+    use_common_workflow           = models.BooleanField(default=False)
+    
     def __str__(self):
         return f"{self.name}"
     def get_email_template(self, template_type):
@@ -107,41 +108,41 @@ class leave_entitlement(models.Model):
         ('start_and_end_of_policy', 'Start and End of Policy'),
         ('do_not_prorate', 'Do not Prorate')
     ]
-    leave_type = models.ForeignKey(leave_type, on_delete=models.CASCADE)
-    effective_after = models.PositiveIntegerField(default=0)
-    effective_after_unit = models.CharField(max_length=10, choices=TIME_UNIT_CHOICES, default='months')
-    effective_after_from = models.CharField(max_length=20, choices=EFFECTIVE_AFTER_CHOICES)
+    leave_type                    = models.ForeignKey(leave_type, on_delete=models.CASCADE)
+    effective_after               = models.PositiveIntegerField(default=0)
+    effective_after_unit          = models.CharField(max_length=10, choices=TIME_UNIT_CHOICES, default='months')
+    effective_after_from          = models.CharField(max_length=20, choices=EFFECTIVE_AFTER_CHOICES)
 
 
-    accrual = models.BooleanField(default=False)
-    accrual_rate = models.FloatField(default=0, help_text="Accrual rate per period (e.g., days/months/yearly)")
-    accrual_frequency = models.CharField(max_length=20, choices=TIME_UNIT_CHOICES)
-    accrual_month = models.CharField(max_length=3, choices=MONTH_CHOICES, default='Jan',null=True,blank=True)
-    accrual_day = models.CharField(max_length=10, choices=DAY_CHOICES, default='1st')
-    round_of = models.CharField(choices=ROUND_OF_TYPE,max_length=20)
+    accrual                       = models.BooleanField(default=False)
+    accrual_rate                  = models.FloatField(default=0, help_text="Accrual rate per period (e.g., days/months/yearly)")
+    accrual_frequency             = models.CharField(max_length=20, choices=TIME_UNIT_CHOICES)
+    accrual_month                 = models.CharField(max_length=3, choices=MONTH_CHOICES, default='Jan',null=True,blank=True)
+    accrual_day                   = models.CharField(max_length=10, choices=DAY_CHOICES, default='1st')
+    round_of                      = models.CharField(choices=ROUND_OF_TYPE,max_length=20)
 
 
-    reset = models.BooleanField(default=False)
-    frequency = models.CharField(max_length=20, choices=TIME_UNIT_CHOICES)
-    month = models.CharField(max_length=30, choices=MONTH_CHOICES, default='Dec')
-    day = models.CharField(max_length=20, choices=DAY_CHOICES)
+    reset                         = models.BooleanField(default=False)
+    frequency                     = models.CharField(max_length=20, choices=TIME_UNIT_CHOICES)
+    month                         = models.CharField(max_length=30, choices=MONTH_CHOICES, default='Dec')
+    day                           = models.CharField(max_length=20, choices=DAY_CHOICES)
 
 
-    carry_forward_choice=models.CharField(max_length=100,choices=CARRY_CHOICE)
-    cf_value = models.PositiveIntegerField()
-    cf_unit_or_percentage = models.CharField(max_length=50,choices=UNIT_CHOICES)
-    cf_max_limit = models.PositiveIntegerField()
-    cf_expires_in_value = models.PositiveIntegerField()
-    cf_time_choice=models.CharField(max_length=20,choices=TIME_UNIT_CHOICES)
+    carry_forward_choice          = models.CharField(max_length=100,choices=CARRY_CHOICE)
+    cf_value                      = models.PositiveIntegerField()
+    cf_unit_or_percentage         = models.CharField(max_length=50,choices=UNIT_CHOICES)
+    cf_max_limit                  = models.PositiveIntegerField()
+    cf_expires_in_value           = models.PositiveIntegerField()
+    cf_time_choice                = models.CharField(max_length=20,choices=TIME_UNIT_CHOICES)
 
 
-    encashment_value = models.PositiveIntegerField(default=50)
-    encashment_unit_or_percentage = models.CharField(max_length=50,choices=UNIT_CHOICES)
-    encashment_max_limit = models.PositiveIntegerField()
+    encashment_value               = models.PositiveIntegerField(default=50)
+    encashment_unit_or_percentage  = models.CharField(max_length=50,choices=UNIT_CHOICES)
+    encashment_max_limit           = models.PositiveIntegerField()
 
 
-    prorate_accrual = models.BooleanField(default=False, help_text="Enable prorate accrual for this leave type.")
-    prorate_type = models.CharField(max_length=30, choices=PRORATE_CHOICES, null=True, blank=True, help_text="Prorate accrual type.")
+    prorate_accrual                 = models.BooleanField(default=False, help_text="Enable prorate accrual for this leave type.")
+    prorate_type                    = models.CharField(max_length=30, choices=PRORATE_CHOICES, null=True, blank=True, help_text="Prorate accrual type.")
     def __str__(self):
         return f"{self.leave_type.name} Entitlement"
 
@@ -149,14 +150,11 @@ class leave_entitlement(models.Model):
 # from django.db.models import Q
 
 class emp_leave_balance(models.Model):
-    employee = models.ForeignKey('EmpManagement.emp_master',on_delete=models.CASCADE)
-    leave_type= models.ForeignKey('leave_type',on_delete=models.CASCADE)
-    balance = models.FloatField(null=True,blank=True)
-    openings = models.IntegerField(null=True,blank=True)
-    # accrued = models.FloatField(null=True, blank=True)
-    # carried_forward = models.FloatField(null=True, blank=True)
-    # encashed = models.FloatField(null=True, blank=True)
-    updated_at = models.DateTimeField(auto_now=True)  # Track last update
+    employee       = models.ForeignKey('EmpManagement.emp_master',on_delete=models.CASCADE)
+    leave_type     = models.ForeignKey('leave_type',on_delete=models.CASCADE)
+    balance        = models.FloatField(null=True,blank=True)
+    openings       = models.IntegerField(null=True,blank=True)
+    updated_at     = models.DateTimeField(auto_now=True)  # Track last update
     def is_weekend(self, date):
         """ Check if the given date is a weekend based on the employee's weekend calendar """
         if self.employee.emp_weekend_calendar:
@@ -200,27 +198,25 @@ class emp_leave_balance(models.Model):
 
         self.balance -= leave_days
         self.save()
-
-
-from django.db import models
-from django.core.validators import MinValueValidator
+    
+    def __str__(self):
+        return f"{self.employee} - {self.balance}"
 
 class leave_accrual_transaction(models.Model):
-    employee = models.ForeignKey('EmpManagement.emp_master', on_delete=models.CASCADE)
-    leave_type = models.ForeignKey(leave_type, on_delete=models.CASCADE)
+    employee     = models.ForeignKey('EmpManagement.emp_master', on_delete=models.CASCADE)
+    leave_type   = models.ForeignKey(leave_type, on_delete=models.CASCADE)
     accrual_date = models.DateField()
-    amount = models.DecimalField(max_digits=5, decimal_places=2)
-    year = models.PositiveIntegerField(default=datetime.now().year)
+    amount       = models.DecimalField(max_digits=5, decimal_places=2)
+    year         = models.PositiveIntegerField(default=datetime.now().year)
 
 class leave_reset_transaction(models.Model):
-    employee = models.ForeignKey('EmpManagement.emp_master', on_delete=models.CASCADE)
-    leave_type = models.ForeignKey('leave_type',on_delete=models.CASCADE)
-    reset_date = models.DateField()
-    carry_forward_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    encashment_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    reset_balance = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    # accrual_details = models.JSONField(null=True, blank=True)  # Store accrual details as JSON
-    year = models.PositiveIntegerField(default=datetime.now().year) 
+    employee               = models.ForeignKey('EmpManagement.emp_master', on_delete=models.CASCADE)
+    leave_type             = models.ForeignKey('leave_type',on_delete=models.CASCADE)
+    reset_date             = models.DateField()
+    carry_forward_amount   = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    encashment_amount      = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    reset_balance          = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    year                   = models.PositiveIntegerField(default=datetime.now().year) 
     def __str__(self):
         return f"{self.employee} - {self.leave_type} Reset on {self.reset_date}"
     
@@ -232,12 +228,12 @@ class applicablity_critirea(models.Model):
         ("O", "Other"),
     ]
     
-    leave_type = models.ForeignKey(leave_type,on_delete=models.CASCADE)
-    gender= models.CharField(choices=GENDER_CHOICES,null=True,blank=True)
-    branch= models.ManyToManyField('OrganisationManager.brnch_mstr',blank=True)
-    department = models.ManyToManyField('OrganisationManager.dept_master',blank=True)
-    designation = models.ManyToManyField('OrganisationManager.desgntn_master',blank=True)
-    role = models.ManyToManyField('OrganisationManager.ctgry_master',blank=True)
+    leave_type         = models.ForeignKey(leave_type,on_delete=models.CASCADE)
+    gender             = models.CharField(choices=GENDER_CHOICES,null=True,blank=True)
+    branch             = models.ManyToManyField('OrganisationManager.brnch_mstr',blank=True)
+    department         = models.ManyToManyField('OrganisationManager.dept_master',blank=True)
+    designation        = models.ManyToManyField('OrganisationManager.desgntn_master',blank=True)
+    role               = models.ManyToManyField('OrganisationManager.ctgry_master',blank=True)
 
 class LvEmailTemplate(models.Model):
     request_type = models.ForeignKey('leave_type', related_name='email_templates', on_delete=models.CASCADE,null=True)
@@ -247,86 +243,153 @@ class LvEmailTemplate(models.Model):
         ('request_rejected', 'Request Rejected')
     ])
     subject = models.CharField(max_length=255)
-    body = models.TextField()
+    body    = models.TextField()
     
 class LvApprovalNotify(models.Model):
-    recipient_user = models.ForeignKey('UserManagement.CustomUser', null=True, blank=True,on_delete=models.CASCADE)
-    recipient_employee = models.ForeignKey('EmpManagement.emp_master', null=True, blank=True, on_delete=models.CASCADE)
-    message = models.CharField(max_length=255)
-    created_at = models.DateTimeField(auto_now_add=True)
-    is_read = models.BooleanField(default=False)
+    recipient_user       = models.ForeignKey('UserManagement.CustomUser', null=True, blank=True,on_delete=models.CASCADE)
+    recipient_employee   = models.ForeignKey('EmpManagement.emp_master', null=True, blank=True, on_delete=models.CASCADE)
+    message              = models.CharField(max_length=255)
+    created_at           = models.DateTimeField(auto_now_add=True)
+    is_read              = models.BooleanField(default=False)
 
     def __str__(self):
         if self.recipient_user:
             return f"Notification for {self.recipient_user.username}: {self.message}"
         else:
             return f"Notification for employee: {self.message}"    
-    
     def send_email_notification(self, template_type, context):
-         # Try to retrieve the active email configuration
         try:
-            email_config = EmailConfiguration.objects.get(is_active=True)
-            use_custom_config = True
-        except EmailConfiguration.DoesNotExist:
-            use_custom_config = False
-            default_email = settings.EMAIL_HOST_USER
-
-        # Use custom or default email configuration
-        if use_custom_config:
-            default_email = email_config.email_host_user
-            connection = get_connection(
-                host=email_config.email_host,
-                port=email_config.email_port,
-                username=email_config.email_host_user,
-                password=email_config.email_host_password,
-                use_tls=email_config.email_use_tls,
-            )
-        else:
-            connection = get_connection(
-                host=settings.EMAIL_HOST,
-                port=settings.EMAIL_PORT,
-                username=settings.EMAIL_HOST_USER,
-                password=settings.EMAIL_HOST_PASSWORD,
-                use_tls=settings.EMAIL_USE_TLS,
-            )
-
-        # Determine recipient email and name
-        to_email = None
-        recipient_name = None
-        if self.recipient_user and self.recipient_user.email:
-            to_email = self.recipient_user.email
-            recipient_name = self.recipient_user.username
-        elif self.recipient_employee and self.recipient_employee.emp_personal_email:
-            to_email = self.recipient_employee.emp_personal_email
-            recipient_name = self.recipient_employee.emp_first_name
-
-        if to_email:
-            context.update({'recipient_name': recipient_name})
-
-            # Fetch the email template
+            # Try to retrieve the active email configuration
             try:
-                email_template = LvEmailTemplate.objects.get(template_type=template_type)
-                subject = email_template.subject
-                template = Template(email_template.body)
-                html_message = template.render(Context(context))
-            except LvEmailTemplate.DoesNotExist:
-                subject = "Request Notification"
-            plain_message = strip_tags(html_message)
+                email_config = EmailConfiguration.objects.get(is_active=True)
+                use_custom_config = True
+            except EmailConfiguration.DoesNotExist:
+                use_custom_config = False
+                default_email = settings.EMAIL_HOST_USER
 
-            # Send the email
-            email = EmailMultiAlternatives(
-                subject=subject,
-                body=plain_message,
-                from_email=default_email,  # From email
-                to=[to_email],  # Recipient list
-                connection=connection,
-                headers={'From': 'zeosoftware@abc.com'}  # Custom header
-            )
-            email.attach_alternative(html_message, "text/html")
-            email.send(fail_silently=False)
+            # Use custom or default email configuration
+            if use_custom_config:
+                default_email = email_config.email_host_user
+                connection = get_connection(
+                    host=email_config.email_host,
+                    port=email_config.email_port,
+                    username=email_config.email_host_user,
+                    password=email_config.email_host_password,
+                    use_tls=email_config.email_use_tls,
+                )
+            else:
+                connection = get_connection(
+                    host=settings.EMAIL_HOST,
+                    port=settings.EMAIL_PORT,
+                    username=settings.EMAIL_HOST_USER,
+                    password=settings.EMAIL_HOST_PASSWORD,
+                    use_tls=settings.EMAIL_USE_TLS,
+                )
+
+            # Determine recipient email and name
+            to_email = None
+            recipient_name = None
+            if self.recipient_user and self.recipient_user.email:
+                to_email = self.recipient_user.email
+                recipient_name = self.recipient_user.username
+            elif self.recipient_employee and self.recipient_employee.emp_personal_email:
+                to_email = self.recipient_employee.emp_personal_email
+                recipient_name = self.recipient_employee.emp_first_name
+
+            if to_email:
+                context.update({'recipient_name': recipient_name})
+
+                # Fetch the email template
+                try:
+                    email_template = LvEmailTemplate.objects.get(template_type=template_type)
+                    subject = email_template.subject
+                    template = Template(email_template.body)
+                    html_message = template.render(Context(context))
+                    plain_message = strip_tags(html_message)
+                except LvEmailTemplate.DoesNotExist:
+                    raise ValidationError("Email template not found. Please set an email template for this notification type.")
+
+                # Send the email
+                email = EmailMultiAlternatives(
+                    subject=subject,
+                    body=plain_message,
+                    from_email=default_email,  # From email
+                    to=[to_email],  # Recipient list
+                    connection=connection,
+                    headers={'From': 'zeosoftware@abc.com'}  # Custom header
+                )
+                email.attach_alternative(html_message, "text/html")
+                email.send(fail_silently=False)
+
+        except ValidationError as e:
+            print(f"Validation Error: {e}")
+        except Exception as e:
+            print(f"An unexpected error occurred: {e}")
+    # def send_email_notification(self, template_type, context):
+    #      # Try to retrieve the active email configuration
+    #     try:
+    #         email_config = EmailConfiguration.objects.get(is_active=True)
+    #         use_custom_config = True
+    #     except EmailConfiguration.DoesNotExist:
+    #         use_custom_config = False
+    #         default_email = settings.EMAIL_HOST_USER
+
+    #     # Use custom or default email configuration
+    #     if use_custom_config:
+    #         default_email = email_config.email_host_user
+    #         connection = get_connection(
+    #             host=email_config.email_host,
+    #             port=email_config.email_port,
+    #             username=email_config.email_host_user,
+    #             password=email_config.email_host_password,
+    #             use_tls=email_config.email_use_tls,
+    #         )
+    #     else:
+    #         connection = get_connection(
+    #             host=settings.EMAIL_HOST,
+    #             port=settings.EMAIL_PORT,
+    #             username=settings.EMAIL_HOST_USER,
+    #             password=settings.EMAIL_HOST_PASSWORD,
+    #             use_tls=settings.EMAIL_USE_TLS,
+    #         )
+
+    #     # Determine recipient email and name
+    #     to_email = None
+    #     recipient_name = None
+    #     if self.recipient_user and self.recipient_user.email:
+    #         to_email = self.recipient_user.email
+    #         recipient_name = self.recipient_user.username
+    #     elif self.recipient_employee and self.recipient_employee.emp_personal_email:
+    #         to_email = self.recipient_employee.emp_personal_email
+    #         recipient_name = self.recipient_employee.emp_first_name
+
+    #     if to_email:
+    #         context.update({'recipient_name': recipient_name})
+
+    #         # Fetch the email template
+    #         try:
+    #             email_template = LvEmailTemplate.objects.get(template_type=template_type)
+    #             subject = email_template.subject
+    #             template = Template(email_template.body)
+    #             html_message = template.render(Context(context))
+    #         except LvEmailTemplate.DoesNotExist:
+    #             subject = "Request Notification"
+    #         plain_message = strip_tags(html_message)
+
+    #         # Send the email
+    #         email = EmailMultiAlternatives(
+    #             subject=subject,
+    #             body=plain_message,
+    #             from_email=default_email,  # From email
+    #             to=[to_email],  # Recipient list
+    #             connection=connection,
+    #             headers={'From': 'zeosoftware@abc.com'}  # Custom header
+    #         )
+    #         email.attach_alternative(html_message, "text/html")
+    #         email.send(fail_silently=False)
 class LvCommonWorkflow(models.Model):
-    level = models.IntegerField()
-    role = models.CharField(max_length=50, null=True, blank=True)
+    level    = models.IntegerField()
+    role     = models.CharField(max_length=50, null=True, blank=True)
     approver = models.ForeignKey('UserManagement.CustomUser', null=True, blank=True, on_delete=models.SET_NULL)
     class Meta:
         constraints = [
@@ -342,11 +405,11 @@ class CompensatoryLeaveTransaction(models.Model):
         ('deduction', 'Deduction'),
     ]
     
-    employee = models.ForeignKey('EmpManagement.emp_master', on_delete=models.CASCADE)
+    employee         = models.ForeignKey('EmpManagement.emp_master', on_delete=models.CASCADE)
     transaction_date = models.DateField(auto_now_add=True)
     transaction_type = models.CharField(max_length=10, choices=TRANSACTION_TYPE_CHOICES)
-    days = models.FloatField()
-    reason = models.TextField()
+    days             = models.FloatField()
+    reason           = models.TextField()
 
     def __str__(self):
         return f"{self.employee} - {self.transaction_type} of {self.days} days on {self.transaction_date}"
@@ -354,7 +417,7 @@ class CompensatoryLeaveTransaction(models.Model):
 class CompensatoryLeaveBalance(models.Model):
     """Tracks the total compensatory leave balance for each employee."""
     employee = models.OneToOneField('EmpManagement.emp_master', on_delete=models.CASCADE)
-    balance = models.FloatField(default=0)
+    balance  = models.FloatField(default=0)
 
     def __str__(self):
         return f"{self.employee} - Compensatory Balance: {self.balance} days"
@@ -369,12 +432,12 @@ class CompensatoryLeaveRequest(models.Model):
         ('work_request', 'Work Request'),
         ('leave_request', 'Compensatory Leave Request'),
     ]
-    request_type = models.CharField(max_length=15, choices=REQUEST_TYPE_CHOICES, default='work_request')
-    employee = models.ForeignKey('EmpManagement.emp_master', on_delete=models.CASCADE)
-    request_date = models.DateField(auto_now_add=True)
-    work_date = models.DateField()  # Date employee worked on weekend/holiday
-    reason = models.TextField()
-    status = models.CharField(max_length=10, choices=LEAVE_STATUS_CHOICES, default='pending')
+    request_type    = models.CharField(max_length=15, choices=REQUEST_TYPE_CHOICES, default='work_request')
+    employee        = models.ForeignKey('EmpManagement.emp_master', on_delete=models.CASCADE)
+    request_date    = models.DateField(auto_now_add=True)
+    work_date       = models.DateField()  # Date employee worked on weekend/holiday
+    reason          = models.TextField()
+    status          = models.CharField(max_length=10, choices=LEAVE_STATUS_CHOICES, default='pending')
     created_by=models.ForeignKey('UserManagement.CustomUser',on_delete=models.CASCADE,null=True,blank=True)
     def __str__(self):
         return f"Compensatory Request for {self.employee} on {self.work_date} - {self.status}"
@@ -600,19 +663,17 @@ class employee_leave_request(models.Model):
         ('second_half', 'Second Half'),
     ]
     
-    employee = models.ForeignKey('EmpManagement.emp_master', on_delete=models.CASCADE)
-    leave_type = models.ForeignKey(leave_type, on_delete=models.CASCADE)    
-    start_date = models.DateField()
-    end_date = models.DateField()
-    reason = models.TextField()
-    status = models.CharField(max_length=10, choices=LEAVE_STATUS_CHOICES, default='pending')
-    applied_on = models.DateField(auto_now_add=True)
-    # approved_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='approved_leaves')
-    # approved_on = models.DateField(null=True, blank=True)
-    dis_half_day = models.BooleanField(default=False)  # True if it's a half-day leave
-    half_day_period = models.CharField(max_length=20, choices=HALF_DAY_CHOICES, null=True, blank=True)  # First Half / Second Half
-    created_by=models.ForeignKey('UserManagement.CustomUser',on_delete=models.CASCADE,null=True,blank=True)
-    number_of_days = models.FloatField(default=1)
+    employee          = models.ForeignKey('EmpManagement.emp_master', on_delete=models.CASCADE)
+    leave_type        = models.ForeignKey(leave_type, on_delete=models.CASCADE)    
+    start_date        = models.DateField()
+    end_date          = models.DateField()
+    reason            = models.TextField()
+    status            = models.CharField(max_length=10, choices=LEAVE_STATUS_CHOICES, default='pending')
+    applied_on        = models.DateField(auto_now_add=True)
+    dis_half_day      = models.BooleanField(default=False)  # True if it's a half-day leave
+    half_day_period   = models.CharField(max_length=20, choices=HALF_DAY_CHOICES, null=True, blank=True)  # First Half / Second Half
+    created_by        = models.ForeignKey('UserManagement.CustomUser',on_delete=models.CASCADE,null=True,blank=True)
+    number_of_days    = models.FloatField(default=1)
     def clean(self):
         super().clean()
         # Validate if half-day leave is allowed for this leave type
@@ -626,18 +687,22 @@ class employee_leave_request(models.Model):
     def save(self, *args, **kwargs):
         # Calculate leave days based on start and end date
         self.number_of_days = self.calculate_leave_days()
-        
         # Check if the status changed to "approved"
         previous_instance = type(self).objects.filter(pk=self.pk).first()
         status_changed_to_approved = (
-            previous_instance is None or previous_instance.status != 'approved'
-        ) and self.status == 'approved'
-
+            previous_instance is None or previous_instance.status != 'Approved'
+        ) and self.status == 'Approved'
+        print("s",status_changed_to_approved)
         with transaction.atomic():
             super().save(*args, **kwargs)
             if status_changed_to_approved:
                 self.deduct_leave_balance()
-
+            # Handle rejoining logic if leave is approved
+            if self.status == 'Approved':
+                rejoining_date = self.fetch_rejoining_date()
+                if rejoining_date:
+                    self.handle_rejoining(rejoining_date)
+   
     def calculate_leave_days(self):
         leave_days = 0
         current_date = self.start_date
@@ -687,15 +752,61 @@ class employee_leave_request(models.Model):
             employee=self.employee,
             leave_type=self.leave_type
         )
-        
+        print(leave_balance)
         # Deduct the number_of_days from balance, allow negative if leave_type.negative is True
-        if not self.leave_type.negative and leave_balance.balance < self.number_of_days:
-            raise ValueError("Insufficient leave balance for this leave type.")
+        # if not self.leave_type.negative and leave_balance.balance < self.number_of_days:
+        #     raise ValueError("Insufficient leave balance for this leave type.")
 
         leave_balance.balance -= self.number_of_days
         leave_balance.save()
     
+    
+    def fetch_rejoining_date(self):
+        # Fetch the earliest attendance record after the leave period
+        attendance_record = Attendance.objects.filter(
+            employee=self.employee,
+            date__gt=self.end_date
+        ).order_by('date').first()
 
+        return attendance_record.date if attendance_record else None
+    def handle_rejoining(self, rejoining_date):
+        # Calculate the number of unpaid days (extra leave days)
+        unpaid_days = 0
+        if rejoining_date > self.end_date:
+            unpaid_days = max(0, (rejoining_date - self.end_date).days - 1)
+            print("unpaid_days",unpaid_days)
+
+        # Deduct extra leave days from leave balance
+        if unpaid_days > 0:
+            leave_balance, created = emp_leave_balance.objects.get_or_create(
+            employee=self.employee,
+            leave_type=self.leave_type
+        )
+            # Allow negative balance only if leave_type allows it
+            # if not self.leave_type.negative and leave_balance.balance < unpaid_days:
+            #     raise ValueError("Insufficient leave balance to cover the extra leave days.")
+            
+            # Deduct extra days
+            leave_balance.balance -= unpaid_days
+            s=leave_balance.save()
+            print("s",s)
+
+
+        # Create or update the EmployeeRejoining record
+        rejoining_record, created = EmployeeRejoining.objects.update_or_create(
+            employee=self.employee,
+            leave_request=self,
+            defaults={
+                'rejoining_date': rejoining_date,
+                'unpaid_leave_days': unpaid_days
+            }
+        )
+
+        if created:
+            print(f"EmployeeRejoining record created for {self.employee}. Rejoining date: {rejoining_date}, Unpaid days: {unpaid_days}.")
+        else:
+            print(f"EmployeeRejoining ss record updated for {self.employee}. Rejoining date: {rejoining_date}, Unpaid days: {unpaid_days}.")
+    
     def __str__(self):
         return f"{self.employee} - {self.leave_type} from {self.start_date} to {self.end_date}"
     
@@ -718,7 +829,6 @@ class employee_leave_request(models.Model):
                 'emp_gender': self.employee.emp_gender,
                 'emp_date_of_birth': self.employee.emp_date_of_birth,
                 'emp_personal_email': self.employee.emp_personal_email,
-                'emp_company_email': self.employee.emp_company_email,
                 'emp_branch_name': self.employee.emp_branch_id,
                 'emp_department_name': self.employee.emp_dept_id,
                 'emp_designation_name': self.employee.emp_desgntn_id,
@@ -735,7 +845,6 @@ class employee_leave_request(models.Model):
                     'emp_gender': self.employee.emp_gender,
                     'emp_date_of_birth': self.employee.emp_date_of_birth,
                     'emp_personal_email': self.employee.emp_personal_email,
-                    'emp_company_email': self.employee.emp_company_email,
                     'emp_branch_name': self.employee.emp_branch_id,
                     'emp_department_name': self.employee.emp_dept_id,
                     'emp_designation_name': self.employee.emp_desgntn_id,
@@ -757,7 +866,8 @@ class employee_leave_request(models.Model):
                 role=next_level.role,
                 level=next_level.level,
                 status=LeaveApproval.PENDING,
-                note=last_approval.note if last_approval else None
+                note=last_approval.note if last_approval else None,
+                employee_id=self.employee_id
             )
 
             # Notify next approver
@@ -773,7 +883,6 @@ class employee_leave_request(models.Model):
                 'emp_gender': self.employee.emp_gender,
                 'emp_date_of_birth': self.employee.emp_date_of_birth,
                 'emp_personal_email': self.employee.emp_personal_email,
-                'emp_company_email': self.employee.emp_company_email,
                 'emp_branch_name': self.employee.emp_branch_id,
                 'emp_department_name': self.employee.emp_dept_id,
                 'emp_designation_name': self.employee.emp_desgntn_id,
@@ -792,7 +901,6 @@ class employee_leave_request(models.Model):
                 'emp_gender': self.employee.emp_gender,
                 'emp_date_of_birth': self.employee.emp_date_of_birth,
                 'emp_personal_email': self.employee.emp_personal_email,
-                'emp_company_email': self.employee.emp_company_email,
                 'emp_branch_name': self.employee.emp_branch_id,
                 'emp_department_name': self.employee.emp_dept_id,
                 'emp_designation_name': self.employee.emp_desgntn_id,
@@ -808,12 +916,21 @@ class employee_leave_request(models.Model):
                     'emp_gender': self.employee.emp_gender,
                     'emp_date_of_birth': self.employee.emp_date_of_birth,
                     'emp_personal_email': self.employee.emp_personal_email,
-                    'emp_company_email': self.employee.emp_company_email,
                     'emp_branch_name': self.employee.emp_branch_id,
                     'emp_department_name': self.employee.emp_dept_id,
                     'emp_designation_name': self.employee.emp_desgntn_id,
                 })
+
+class EmployeeRejoining(models.Model):
+    employee = models.ForeignKey('EmpManagement.emp_master', on_delete=models.CASCADE)
+    leave_request = models.OneToOneField('employee_leave_request', on_delete=models.CASCADE)
+    rejoining_date = models.DateField()
+    unpaid_leave_days = models.FloatField(default=0)
+    # paid_leave_days = models.IntegerField(default=0)
+    created_at      = models.DateTimeField(auto_now_add=True)
     
+    def __str__(self):
+        return f"Rejoining for {self.employee.emp_first_name} on {self.rejoining_date}"
 class LvRejectionReason(models.Model):
     reason_text = models.CharField(max_length=255, unique=True)
 
@@ -821,11 +938,11 @@ class LvRejectionReason(models.Model):
         return self.reason_text
 
 class LeaveApprovalLevels(models.Model):
-    level = models.IntegerField()
-    role = models.CharField(max_length=50, null=True, blank=True)  # Use this for role-based approval like 'CEO' or 'Manager'
-    approver = models.ForeignKey('UserManagement.CustomUser', null=True, blank=True, on_delete=models.SET_NULL)  # Use this for user-based approval
-    request_type = models.ForeignKey('leave_type', related_name='leave_approval_levels', on_delete=models.CASCADE, null=True, blank=True)  # Nullable for common workflow
-    is_compensatory = models.BooleanField(default=False)
+    level            = models.IntegerField()
+    role             = models.CharField(max_length=50, null=True, blank=True)  # Use this for role-based approval like 'CEO' or 'Manager'
+    approver         = models.ForeignKey('UserManagement.CustomUser', null=True, blank=True, on_delete=models.SET_NULL)  # Use this for user-based approval
+    request_type     = models.ForeignKey('leave_type', related_name='leave_approval_levels', on_delete=models.CASCADE, null=True, blank=True)  # Nullable for common workflow
+    is_compensatory  = models.BooleanField(default=False)
     class Meta:
         unique_together = ('level', 'request_type')
 
@@ -849,6 +966,8 @@ class LeaveApproval(models.Model):
     rejection_reason = models.ForeignKey(LvRejectionReason,null=True, blank=True, on_delete=models.SET_NULL)
     created_at = models.DateField(auto_now_add=True)
     updated_at = models.DateField(auto_now=True)
+    employee_id = models.IntegerField(null=True, blank=True)
+
     def approve(self, note=None):
         self.status = self.APPROVED
         if note:
@@ -887,7 +1006,6 @@ class LeaveApproval(models.Model):
                 'emp_gender': self.leave_request.employee.emp_gender,
                 'emp_date_of_birth': self.leave_request.employee.emp_date_of_birth,
                 'emp_personal_email': self.leave_request.employee.emp_personal_email,
-                'emp_company_email': self.leave_request.employee.emp_company_email,
                 'emp_branch_name': self.leave_request.employee.emp_branch_id,
                 'emp_department_name': self.leave_request.employee.emp_dept_id,
                 'emp_designation_name': self.leave_request.employee.emp_desgntn_id,
@@ -905,7 +1023,6 @@ class LeaveApproval(models.Model):
                     'emp_gender': self.leave_request.employee.emp_gender,
                     'emp_date_of_birth': self.leave_request.employee.emp_date_of_birth,
                     'emp_personal_email': self.leave_request.employee.emp_personal_email,
-                    'emp_company_email': self.leave_request.employee.emp_company_email,
                     'emp_branch_name': self.leave_request.employee.emp_branch_id,
                     'emp_department_name': self.leave_request.employee.emp_dept_id,
                     'emp_designation_name': self.leave_request.employee.emp_desgntn_id,
@@ -927,7 +1044,6 @@ class LeaveApproval(models.Model):
                 'emp_gender': self.compensatory_request.employee.emp_gender,
                 'emp_date_of_birth': self.compensatory_request.employee.emp_date_of_birth,
                 'emp_personal_email': self.compensatory_request.employee.emp_personal_email,
-                'emp_company_email': self.compensatory_request.employee.emp_company_email,
                 'emp_branch_name': self.compensatory_request.employee.emp_branch_id,
                 'emp_department_name': self.compensatory_request.employee.emp_dept_id,
                 'emp_designation_name': self.compensatory_request.employee.emp_desgntn_id,
@@ -945,13 +1061,12 @@ class LeaveApproval(models.Model):
                     'emp_gender': self.compensatory_request.employee.emp_gender,
                     'emp_date_of_birth': self.compensatory_request.employee.emp_date_of_birth,
                     'emp_personal_email': self.compensatory_request.employee.emp_personal_email,
-                    'emp_company_email': self.compensatory_request.employee.emp_company_email,
                     'emp_branch_name': self.compensatory_request.employee.emp_branch_id,
                     'emp_department_name': self.compensatory_request.employee.emp_dept_id,
                     'emp_designation_name': self.compensatory_request.employee.emp_desgntn_id,
                     'emp_hired_date': self.compensatory_request.employee.emp_hired_date,
                 })
-
+    
 @receiver(post_save, sender=employee_leave_request)
 def create_initial_approval(sender, instance, created, **kwargs):
     if created:
@@ -969,7 +1084,8 @@ def create_initial_approval(sender, instance, created, **kwargs):
                     approver=first_level.approver,
                     role=first_level.role,
                     level=first_level.level,
-                    status=LeaveApproval.PENDING
+                    status=LeaveApproval.PENDING,
+                    employee_id=instance.employee_id
                 )
             # Notify first approver
             notification = LvApprovalNotify.objects.create(
@@ -983,7 +1099,6 @@ def create_initial_approval(sender, instance, created, **kwargs):
                 'emp_gender':instance.employee.emp_gender,
                 'emp_date_of_birth':instance.employee.emp_date_of_birth,
                 'emp_personal_email':instance.employee.emp_personal_email,
-                'emp_company_email':instance.employee.emp_company_email,
                 'emp_branch_name':instance.employee.emp_branch_id,
                 'emp_department_name':instance.employee.emp_dept_id,
                 'emp_designation_name':instance.employee.emp_desgntn_id,
@@ -998,32 +1113,28 @@ class EmployeeMachineMapping(models.Model):
         return f'{self.employee.emp_code} - {self.machine_code}'
 
 class Shift(models.Model):
-    name = models.CharField(max_length=50)
-    start_time = models.TimeField(null=True, blank=True)  # Optional for off days
-    end_time = models.TimeField(null=True, blank=True)    # Optional for off days
-    break_duration = models.DurationField(default=timedelta(minutes=0))  # Break time in minutes
+    name            = models.CharField(max_length=50)
+    start_time      = models.TimeField(null=True, blank=True)  # Optional for off days
+    end_time        = models.TimeField(null=True, blank=True)    # Optional for off days
+    break_duration  = models.DurationField(default=timedelta(minutes=0))  # Break time in minutes
 
     def __str__(self):
         return f"{self.name}"
+    
+class ShiftPattern(models.Model):
+    """Defines a shift pattern for a rotating schedule, managing shifts by week and weekday."""
+    name             = models.CharField(max_length=100)  # Name for the pattern (e.g., 'Morning Rotation')
+    # rotation_cycle_weeks = models.IntegerField(default=4)  # Length of the rotation cycle
+    monday_shift     = models.ForeignKey(Shift, on_delete=models.SET_NULL, null=True, related_name='pattern_monday')
+    tuesday_shift    = models.ForeignKey(Shift, on_delete=models.SET_NULL, null=True, related_name='pattern_tuesday')
+    wednesday_shift  = models.ForeignKey(Shift, on_delete=models.SET_NULL, null=True, related_name='pattern_wednesday')
+    thursday_shift   = models.ForeignKey(Shift, on_delete=models.SET_NULL, null=True, related_name='pattern_thursday')
+    friday_shift     = models.ForeignKey(Shift, on_delete=models.SET_NULL, null=True, related_name='pattern_friday')
+    saturday_shift   = models.ForeignKey(Shift, on_delete=models.SET_NULL, null=True, related_name='pattern_saturday')
+    sunday_shift     = models.ForeignKey(Shift, on_delete=models.SET_NULL, null=True, related_name='pattern_sunday')
 
-class WeeklyShiftSchedule(models.Model):
-    employee = models.ManyToManyField('EmpManagement.emp_master', null=True,blank=True)
-    branch= models.ManyToManyField('OrganisationManager.brnch_mstr',null=True,blank=True)
-    department = models.ManyToManyField('OrganisationManager.dept_master',null=True,blank=True)
-    designation = models.ManyToManyField('OrganisationManager.desgntn_master',null=True,blank=True)
-    role = models.ManyToManyField('OrganisationManager.ctgry_master',null=True,blank=True)
-    # Each day of the week is assigned a shift, including weekends
-    monday_shift = models.ForeignKey(Shift, on_delete=models.SET_NULL, null=True, related_name='monday_shift')
-    tuesday_shift = models.ForeignKey(Shift, on_delete=models.SET_NULL, null=True, related_name='tuesday_shift')
-    wednesday_shift = models.ForeignKey(Shift, on_delete=models.SET_NULL, null=True, related_name='wednesday_shift')
-    thursday_shift = models.ForeignKey(Shift, on_delete=models.SET_NULL, null=True, related_name='thursday_shift')
-    friday_shift = models.ForeignKey(Shift, on_delete=models.SET_NULL, null=True, related_name='friday_shift')
-    saturday_shift = models.ForeignKey(Shift, on_delete=models.SET_NULL, null=True, related_name='saturday_shift')
-    sunday_shift = models.ForeignKey(Shift, on_delete=models.SET_NULL, null=True, related_name='sunday_shift')
-
-
-    def get_shift_for_day(self, date):
-        weekday = date.weekday()  # 0 = Monday, 6 = Sunday
+    def get_shift_for_day(self, weekday):
+        """Return the shift for the given weekday (0=Monday, ..., 6=Sunday)."""
         shifts = {
             0: self.monday_shift,
             1: self.tuesday_shift,
@@ -1033,20 +1144,117 @@ class WeeklyShiftSchedule(models.Model):
             5: self.saturday_shift,
             6: self.sunday_shift,
         }
-        return shifts.get(weekday, None)
+        return shifts.get(weekday)
 
     def __str__(self):
-        return f"Weekly Shift Schedule for {self.employee}"
-class Attendance(models.Model):
-    employee = models.ForeignKey("EmpManagement.emp_master", on_delete=models.CASCADE)
-    shift = models.ForeignKey(Shift, on_delete=models.SET_NULL, null=True, blank=True)
+        return f"Shift Pattern: {self.name}"
+
+class EmployeeShiftSchedule(models.Model):
+    """Handles shift assignments for employees and departments over a rotating schedule."""
+    employee             = models.ManyToManyField('EmpManagement.emp_master', blank=True)
+    departments          = models.ManyToManyField('OrganisationManager.dept_master', blank=True)
+    week_patterns        = models.ManyToManyField(ShiftPattern, through='WeekPatternAssignment', blank=True,related_name='week_pattern_schedules')
+    rotation_cycle_weeks = models.IntegerField(default=4)  # Total weeks in the rotation cycle
+    start_date           = models.DateField(default=timezone.now, blank=True)
+    is_rotating          = models.BooleanField(default=True)  # Flag for rotating schedule or not
+    single_shift_pattern = models.ForeignKey(ShiftPattern, null=True, blank=True, on_delete=models.SET_NULL,related_name='single_shift_schedules')
+    def get_shift_for_date(self, employee, date):
+        """Determine the shift for a given date."""
+        if not self.is_rotating:  # If not rotating, use a single shift pattern
+            if self.single_shift_pattern:
+                weekday = date.weekday()
+                return self.single_shift_pattern.get_shift_for_day(weekday)
+            return None
+
+        # Check if there's an override shift for the specific date
+        override = ShiftOverride.objects.filter(employee=employee, date=date).first()
+        if override:
+            return override.override_shift
+
+        # Ensure date is in date format
+        if isinstance(date, datetime):
+            date = date.date()
+
+        # Get the schedule start date for the employee
+        start_date = self.get_schedule_start_date(employee)
+
+        # Calculate the week number within the month
+        month_start_date = date.replace(day=1)
+        days_since_month_start = (date - month_start_date).days
+        week_number_in_month = (days_since_month_start // 7) + 1
+
+        # Calculate week number in the rotation cycle based on month-based calculation
+        week_number = ((week_number_in_month - 1) % self.rotation_cycle_weeks) + 1
+
+        print(f"Start Date: {start_date}")
+        print(f"Month Start Date: {month_start_date}")
+        print(f"Days Since Month Start: {days_since_month_start}")
+        print(f"Week Number in Month: {week_number_in_month}")
+        print(f"Week Number in Rotation Cycle: {week_number}")
+
+        # Retrieve the shift pattern template for the calculated week
+        assignment = WeekPatternAssignment.objects.filter(schedule=self, week_number=week_number).first()
+        if assignment and assignment.template:
+            weekday = date.weekday()
+            return assignment.template.get_shift_for_day(weekday)
+        return None
+    
+    
+    def get_schedule_start_date(self, employee):
+        # Get the current year for calculation
+        current_year = timezone.now().year
+        # Set January 1st of the current year as the start date for schedule
+        return timezone.datetime(current_year, 1, 1).date()
+    
+
+    def __str__(self):
+        return f"Rotating Shift Schedule for {self.departments} "
+class WeekPatternAssignment(models.Model):
+    """Assigns a shift pattern template to a specific week in the rotation."""
+    schedule = models.ForeignKey(EmployeeShiftSchedule, on_delete=models.CASCADE)
+    week_number = models.IntegerField()  # Week number in the cycle
+    template = models.ForeignKey(ShiftPattern, on_delete=models.SET_NULL, null=True)
+
+    class Meta:
+        unique_together = ('schedule', 'week_number')  # Ensure unique assignment per week in a schedule
+
+    def __str__(self):
+        return f"Week {self.week_number} using {self.template.name} in {self.schedule}"
+
+class ShiftOverride(models.Model):
+    employee = models.ForeignKey('EmpManagement.emp_master', on_delete=models.CASCADE)
     date = models.DateField()
-    check_in_time = models.TimeField(null=True, blank=True)
+    override_shift = models.ForeignKey(Shift, on_delete=models.SET_NULL, null=True)
+
+    class Meta:
+        unique_together = ('employee', 'date')  # Ensure only one override per employee per date
+
+    def __str__(self):
+        return f"Shift Override for {self.employee} on {self.date}"
+    
+class Attendance(models.Model):
+    employee       = models.ForeignKey("EmpManagement.emp_master", on_delete=models.CASCADE)
+    shift          = models.ForeignKey(Shift, on_delete=models.SET_NULL, null=True, blank=True)
+    date           = models.DateField()
+    check_in_time  = models.TimeField(null=True, blank=True)
     check_out_time = models.TimeField(null=True, blank=True)
-    total_hours = models.DurationField(null=True, blank=True)
+    total_hours    = models.DurationField(null=True, blank=True)
     class Meta:
         unique_together = ('employee', 'date')
     
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+
+        # Check if this attendance marks rejoining after approved leave
+        approved_leave = employee_leave_request.objects.filter(
+            employee=self.employee,
+            status='Approved',
+            end_date__lt=self.date
+        ).order_by('-end_date').first()
+
+        if approved_leave:
+            # Trigger rejoining logic
+            approved_leave.handle_rejoining(self.date)
     def calculate_total_hours(self):
         if self.check_in_time and self.check_out_time:
             # Ensure that check_in_time and check_out_time are time objects
@@ -1066,8 +1274,10 @@ class Attendance(models.Model):
             self.total_hours = total_duration  # Store as timedelta (if using DurationField)
             self.save()
     
+    def __str__(self):
+        return f"attendance of {self.employee} on {self.date}"
 class LeaveReport(models.Model):
-    file_name = models.CharField(max_length=100,null=True,unique=True)
+    file_name   = models.CharField(max_length=100,null=True,unique=True)
     report_data = models.FileField(upload_to='leave_report/', null=True, blank=True)
     class Meta:
         permissions = (
@@ -1080,7 +1290,7 @@ class LeaveReport(models.Model):
         return self.file_name 
     
 class LeaveApprovalReport(models.Model):
-    file_name = models.CharField(max_length=100,null=True,unique=True)
+    file_name   = models.CharField(max_length=100,null=True,unique=True)
     report_data = models.FileField(upload_to='leave_approval_report/', null=True, blank=True)
     class Meta:
         permissions = (
@@ -1092,7 +1302,7 @@ class LeaveApprovalReport(models.Model):
         return self.file_name 
 
 class AttendanceReport(models.Model):
-    file_name = models.CharField(max_length=100,null=True,unique=True)
+    file_name   = models.CharField(max_length=100,null=True,unique=True)
     report_data = models.FileField(upload_to='attendance_report/', null=True, blank=True)
     class Meta:
         permissions = (
@@ -1104,7 +1314,7 @@ class AttendanceReport(models.Model):
         return self.file_name 
 
 class lvBalanceReport(models.Model):
-    file_name = models.CharField(max_length=100,null=True,unique=True)
+    file_name   = models.CharField(max_length=100,null=True,unique=True)
     report_data = models.FileField(upload_to='lvbalance_report/', null=True, blank=True)
     class Meta:
         permissions = (

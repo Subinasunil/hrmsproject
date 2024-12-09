@@ -10,7 +10,7 @@ from rest_framework.authentication import SessionAuthentication,TokenAuthenticat
 from rest_framework.permissions import IsAuthenticated,AllowAny,IsAuthenticatedOrReadOnly,IsAdminUser
 from rest_framework.parsers import MultiPartParser, FormParser
 import csv
-from UserManagement.permissions import CountryPermission,StatePermission,DocTypePermission
+
 
 # Create your views here.
 

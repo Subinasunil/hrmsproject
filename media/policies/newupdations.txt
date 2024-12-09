@@ -1,0 +1,3 @@
+*fixed email template
+*rejection reason adds in the general request
+*field name changed in the empmaster- hired_date and active_date - effect in the empbulkupload
