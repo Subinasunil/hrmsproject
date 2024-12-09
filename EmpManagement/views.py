@@ -1757,44 +1757,44 @@ class GeneralRequestViewset(viewsets.ModelViewSet):
     queryset = GeneralRequest.objects.all()
     serializer_class = GeneralRequestSerializer
     # permission_classes =[IsSuperUserOrHasGeneralRequestPermission]
-    # def create(self, request, *args, **kwargs):
-    #     data = request.data.copy()  # Make a mutable copy of request data
+    def create(self, request, *args, **kwargs):
+        data = request.data.copy()  # Make a mutable copy of request data
 
-    #     branch = data.get('branch')
-    #     try:
-    #         doc_numbering = document_numbering.objects.get(branch_id=branch)
-    #     except document_numbering.DoesNotExist:
-    #         return Response({"error": "Document numbering not found for this branch"}, status=status.HTTP_400_BAD_REQUEST)
+        branch = data.get('branch')
+        try:
+            doc_numbering = document_numbering.objects.get(branch_id=branch)
+        except document_numbering.DoesNotExist:
+            return Response({"error": "Document numbering not found for this branch"}, status=status.HTTP_400_BAD_REQUEST)
 
-    #     if doc_numbering.automatic_numbering:
-    #         # Generate the document number if automatic numbering is enabled
-    #         doc_number = f"{doc_numbering.preffix}{doc_numbering.suffix}{doc_numbering.year.year}{doc_numbering.start_number}{doc_numbering.current_number}"
+        if doc_numbering.automatic_numbering:
+            # Generate the document number if automatic numbering is enabled
+            doc_number = f"{doc_numbering.preffix}{doc_numbering.suffix}{doc_numbering.year.year}{doc_numbering.start_number}{doc_numbering.current_number}"
 
-    #         # Update current_number
-    #         with transaction.atomic():
-    #             doc_numbering.current_number += 1
-    #             doc_numbering.save()
+            # Update current_number
+            with transaction.atomic():
+                doc_numbering.current_number += 1
+                doc_numbering.save()
 
-    #         # Add the generated document number to the data
-    #         data['doc_number'] = doc_number
-    #     else:
-    #         # If automatic numbering is disabled, check if 'doc_number' is provided in the request data
-    #         if 'doc_number' not in data or not data['doc_number']:
-    #             # Generate the document number automatically if 'doc_number' is not provided or empty
-    #             doc_number = f"{doc_numbering.preffix}{doc_numbering.year.year}{doc_numbering.start_number}{doc_numbering.current_number}{doc_numbering.suffix}"
-    #             # Update current_number
-    #             with transaction.atomic():
-    #                 doc_numbering.current_number += 1
-    #                 doc_numbering.save()
-    #             # Add the generated document number to the data
-    #             data['doc_number'] = doc_number
+            # Add the generated document number to the data
+            data['doc_number'] = doc_number
+        else:
+            # If automatic numbering is disabled, check if 'doc_number' is provided in the request data
+            if 'doc_number' not in data or not data['doc_number']:
+                # Generate the document number automatically if 'doc_number' is not provided or empty
+                doc_number = f"{doc_numbering.preffix}{doc_numbering.year.year}{doc_numbering.start_number}{doc_numbering.current_number}{doc_numbering.suffix}"
+                # Update current_number
+                with transaction.atomic():
+                    doc_numbering.current_number += 1
+                    doc_numbering.save()
+                # Add the generated document number to the data
+                data['doc_number'] = doc_number
 
-    #     # Proceed to create the GeneralRequest
-    #     serializer = self.get_serializer(data=data)
-    #     serializer.is_valid(raise_exception=True)
-    #     self.perform_create(serializer)
-    #     headers = self.get_success_headers(serializer.data)
-    #     return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+        # Proceed to create the GeneralRequest
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
     @action(detail=False, methods=['get'])
     def document_numbering_by_branch(self, request):
         branch_id = request.query_params.get('branch_id')
@@ -2207,6 +2207,42 @@ class NotificationSettingsViewSet(viewsets.ModelViewSet):
 class DocExpEmailTemplateViewset(viewsets.ModelViewSet):
     queryset = DocExpEmailTemplate.objects.all()
     serializer_class = DocExpEmailTemplateSerializer
+
+class EmployeeListViewSet(viewsets.ModelViewSet):
+    serializer_class = EmpSerializer
+
+    def list(self, request, *args, **kwargs):
+        tenant_id = request.query_params.get('tenant_id')
+        if not tenant_id:
+            return Response({'error': 'Tenant ID is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        with tenant_context(tenant_id):
+            employees = emp_master.objects.all()  # Filter based on tenant context
+            serializer = self.get_serializer(employees, many=True)
+            return Response(serializer.data)
+    
+class LinkUserToEmployee(APIView):
+    def post(self, request, *args, **kwargs):
+        user_id = request.data.get('user.id')
+        employee_id = request.data.get('employee_id')
+        
+        try:
+            user = CustomUser.objects.get(id=user_id)
+            employee = emp_master.objects.get(id=employee_id)
+        except CustomUser.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        except emp_master.DoesNotExist:
+            return Response({'error': 'Employee not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Ensure the employee is part of the user's tenants
+        if employee.emp_branch_id.id not in user.tenants.values_list('id', flat=True):
+            return Response({'error': 'Selected employee is not part of the user\'s tenants.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Link the user to the employee
+        employee.user = user
+        employee.save()
+
+        return Response({'success': 'User linked to employee successfully'}, status=status.HTTP_200_OK)    
 
     
     
